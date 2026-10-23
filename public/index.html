@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Finance Chat</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><path d="M8 10.5V8.8A3.8 3.8 0 0 1 11.8 5h10.4A3.8 3.8 0 0 1 26 8.8v14.4a3.8 3.8 0 0 1-3.8 3.8H10a4 4 0 0 1-4-4V11.5a3 3 0 0 1 3-3h13"/><path d="M8 11h14.5a3.5 3.5 0 0 1 0 7H8a3 3 0 0 1 0-6Z"/><circle cx="22" cy="14.5" r="1.3"/></svg>
+      </div>
+      <div class="brand-copy">
+        <h1>Finance Chat</h1>
+        <p>Registre uma movimentação em português</p>
+      </div>
+      <button class="icon-button" type="button" aria-label="Mais opções" title="Mais opções"><span></span><span></span><span></span></button>
+    </header>
+
+    <section class="chat-window" aria-label="Conversa do Finance Chat">
+      <div class="date-pill">Hoje</div>
+      <div id="conversation" class="conversation" aria-live="polite">
+        <div class="message-row assistant-row">
+          <div class="avatar" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M8 10.5V8.8A3.8 3.8 0 0 1 11.8 5h10.4A3.8 3.8 0 0 1 26 8.8v14.4a3.8 3.8 0 0 1-3.8 3.8H10a4 4 0 0 1-4-4V11.5a3 3 0 0 1 3-3h13"/><path d="M8 11h14.5a3.5 3.5 0 0 1 0 7H8a3 3 0 0 1 0-6Z"/><circle cx="22" cy="14.5" r="1.3"/></svg></div>
+          <div><span class="sender-label">Finance Chat</span><div class="message assistant-message">Olá! O que você deseja registrar hoje?</div><time class="message-time">Agora</time></div>
+        </div>
+      </div>
+    </section>
+
+    <div id="typing-indicator" class="typing-indicator" role="status" aria-live="polite" aria-label="Finance Chat está digitando" hidden>
+      <div class="typing-avatar" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M8 10.5V8.8A3.8 3.8 0 0 1 11.8 5h10.4A3.8 3.8 0 0 1 26 8.8v14.4a3.8 3.8 0 0 1-3.8 3.8H10a4 4 0 0 1-4-4V11.5a3 3 0 0 1 3-3h13"/><path d="M8 11h14.5a3.5 3.5 0 0 1 0 7H8a3 3 0 0 1 0-6Z"/><circle cx="22" cy="14.5" r="1.3"/></svg></div>
+      <div class="typing-bubble"><span></span><span></span><span></span></div>
+    </div>
+
+    <form id="command-form" class="composer">
+      <div class="composer-icon" aria-hidden="true">✦</div>
+      <label class="sr-only" for="message">Descreva a movimentação</label>
+      <input id="message" autocomplete="off" placeholder="Digite uma movimentação..." required>
+      <button id="preview-button" class="send-button" aria-label="Revisar movimentação" title="Revisar movimentação"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-3 14-4-5-7-2Z"/><path d="m12 14 7-9"/></svg></button>
+    </form>
+    <p class="privacy-note"><span aria-hidden="true">♙</span> Você pode escrever em linguagem natural, como se estivesse falando.</p>
+  </main>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

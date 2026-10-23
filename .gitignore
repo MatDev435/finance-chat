@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Local credentials and environment settings
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.aws/
+
+# Actual Budget cache and local databases (may contain financial data)
+/data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+
+# Generated output, coverage, and caches
+/dist/
+/build/
+/coverage/
+.nyc_output/
+.cache/
+*.tsbuildinfo
+
+# Logs and temporary files
+*.log
+npm-debug.log*
+/tmp/
+/temp/
+*.tmp
+*.swp
+*.swo
+*~
+
+# Local editor and agent settings
+.idea/
+.vscode/
+.agents/
+.codex/
+
+# Operating system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
