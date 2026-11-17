@@ -11,6 +11,10 @@ const workspace = $('[data-screen-name="workspace"]');
 const messageInput = $('#message');
 const previewButton = $('#preview-button');
 const mobileQuery = window.matchMedia('(max-width: 700px)');
+/** Auto-focus only on large screens; on phones the user taps the field (accessibility decision). */
+function focusComposer() {
+  if (!mobileQuery.matches && !$('#chat').hidden) messageInput.focus({ preventScroll: true });
+}
 const storage = browserStorage();
 const GREETING = 'Olá! O que você deseja registrar hoje?';
 const PREVIEW_TEXT = 'Entendi! Encontrei uma movimentação. Confira os detalhes antes de confirmar.';
@@ -270,6 +274,7 @@ async function loadAccounts({ initial = false } = {}) {
   }
   renderAccountList();
   renderView();
+  if (initial) focusComposer();
 }
 
 async function enterWorkspace(me) {
@@ -318,7 +323,7 @@ function selectAccount(accountId) {
   if (wasInList) pushMobileState('chat');
   renderAccountList();
   renderView();
-  if (!mobileQuery.matches) messageInput.focus({ preventScroll: true });
+  focusComposer();
 }
 
 /** Back on mobile (and closing settings on desktop). */
@@ -427,7 +432,7 @@ $('#command-form').addEventListener('submit', async (event) => {
     handleChatError(accountId, error);
   } finally {
     setBusy(accountId, false);
-    if (isVisible(accountId) && !mobileQuery.matches) messageInput.focus({ preventScroll: true });
+    if (isVisible(accountId)) focusComposer();
   }
 });
 
@@ -471,7 +476,7 @@ async function confirmPreview(accountId, entryId, ui) {
     handleChatError(accountId, error, text);
   } finally {
     setBusy(accountId, false);
-    if (isVisible(accountId) && !mobileQuery.matches) messageInput.focus({ preventScroll: true });
+    if (isVisible(accountId)) focusComposer();
   }
 }
 

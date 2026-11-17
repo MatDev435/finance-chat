@@ -50,7 +50,7 @@ export function toActualError(error) {
   const result = new Error(PUBLIC_MESSAGES[reason]);
   result.code = 'ACTUAL_ERROR';
   result.reason = reason;
-  result.detail = typeof error?.code === 'string' ? error.code : error?.name;
+  result.detail = typeof error?.code === 'string' ? error.code : `${error?.name}: ${String(error?.message || '').slice(0, 200)}`;
   return result;
 }
 
