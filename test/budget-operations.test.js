@@ -1,0 +1,114 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { commitTransaction, listChatAccounts, prepareTransaction } from '../src/budget-operations.js';
+import { parseCommand } from '../src/parser.js';
+import { createBudget, createFakeActual } from './support/fake-actual.js';
+
+async function openWorld(accounts) {
+  const budget = createBudget({
+    accounts,
+    categories: [{ id: 'cat-food', name: 'Alimentação' }, { id: 'cat-transport', name: 'Transporte' }],
+  });
+  const api = createFakeActual({ 'https://a.example': { password: 'p', files: { s: budget } } });
+  await api.init({ serverURL: 'https://a.example', password: 'p' });
+  await api.downloadBudget('s');
+  return { api, budget };
+}
+
+const ACCOUNTS = () => [
+  { id: 'acc-nubank', name: 'Nubank', closed: false, offbudget: false },
+  { id: 'acc-inter', name: 'Inter', closed: false, offbudget: false },
+  { id: 'acc-old', name: 'Bradesco antigo', closed: true, offbudget: false },
+  { id: 'acc-invest', name: 'Investimentos', closed: false, offbudget: true },
+];
+
+const command = () => parseCommand('Gastei 40 reais no mercado categoria alimentação');
+
+test('lists only open on-budget accounts, by id, after syncing', async () => {
+  const { api } = await openWorld(ACCOUNTS());
+  assert.deepEqual(await listChatAccounts(api), [{ id: 'acc-nubank', name: 'Nubank' }, { id: 'acc-inter', name: 'Inter' }]);
+  assert.equal(api.calls.at(-1).op, 'sync');
+});
+
+test('a renamed account keeps its chat: same id, new display name', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  budget.accounts[0].name = 'Nubank Roxinho';
+  assert.deepEqual((await listChatAccounts(api))[0], { id: 'acc-nubank', name: 'Nubank Roxinho' });
+  const { validation, mapped } = await prepareTransaction(api, { accountId: 'acc-nubank', command: command(), date: '2026-11-16' });
+  assert.deepEqual(validation.account, { id: 'acc-nubank', name: 'Nubank Roxinho' });
+  assert.equal(mapped.accountId, 'acc-nubank');
+});
+
+test('new accounts appear and deleted accounts disappear on the next listing', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  budget.accounts.push({ id: 'acc-wallet', name: 'Carteira' });
+  budget.accounts.splice(1, 1);
+  assert.deepEqual((await listChatAccounts(api)).map((account) => account.id), ['acc-nubank', 'acc-wallet']);
+});
+
+test('the transaction goes to the selected account, not to another one', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-inter', command: command(), date: '2026-11-16' });
+  const result = await commitTransaction(api, mapped);
+  assert.deepEqual(result, { account: { id: 'acc-inter', name: 'Inter' }, synced: true });
+  assert.equal(budget.transactions.length, 1);
+  assert.equal(budget.transactions[0].account, 'acc-inter');
+  assert.deepEqual(budget.transactions[0], { date: '2026-11-16', amount: -4000, payee_name: 'mercado', category: 'cat-food', account: 'acc-inter' });
+});
+
+test('preview refuses unknown, closed and off-budget accounts without any fallback', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  for (const [accountId, reason] of [['acc-missing', 'missing'], ['acc-old', 'closed'], ['acc-invest', 'offbudget'], [undefined, 'missing']]) {
+    await assert.rejects(() => prepareTransaction(api, { accountId, command: command(), date: '2026-11-16' }), { code: 'ACCOUNT_UNAVAILABLE', reason });
+  }
+  assert.equal(budget.transactions.length, 0);
+});
+
+test('commit re-validates: an account deleted after the preview receives nothing', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-inter', command: command(), date: '2026-11-16' });
+  budget.accounts = budget.accounts.filter((account) => account.id !== 'acc-inter');
+  await assert.rejects(() => commitTransaction(api, mapped), { code: 'ACCOUNT_UNAVAILABLE' });
+  assert.equal(budget.transactions.length, 0);
+});
+
+test('commit re-validates: an account closed after the preview receives nothing', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-nubank', command: command(), date: '2026-11-16' });
+  budget.accounts[0].closed = true;
+  await assert.rejects(() => commitTransaction(api, mapped), { code: 'ACCOUNT_UNAVAILABLE', reason: 'closed' });
+  assert.equal(budget.transactions.length, 0);
+});
+
+test('commit refuses a category deleted after the preview', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-nubank', command: command(), date: '2026-11-16' });
+  budget.categories = budget.categories.filter((category) => category.id !== 'cat-food');
+  await assert.rejects(() => commitTransaction(api, mapped), { code: 'VALIDATION_ERROR' });
+  assert.equal(budget.transactions.length, 0);
+});
+
+test('if syncing before the write fails, nothing is written', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-nubank', command: command(), date: '2026-11-16' });
+  api.hooks.beforeSync = () => { throw Object.assign(new Error('offline'), { code: 'network-failure' }); };
+  await assert.rejects(() => commitTransaction(api, mapped), { code: 'network-failure' });
+  assert.equal(budget.transactions.length, 0);
+});
+
+test('a failed sync after a successful write is reported, not hidden and not retried', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-nubank', command: command(), date: '2026-11-16' });
+  api.hooks.beforeAdd = () => { api.hooks.beforeSync = () => { throw Object.assign(new Error('offline'), { code: 'network-failure' }); }; };
+  const result = await commitTransaction(api, mapped);
+  assert.equal(result.synced, false);
+  assert.equal(budget.transactions.length, 1);
+  assert.equal(api.calls.filter((call) => call.op === 'add').length, 1);
+});
+
+test('a failing write is reported as uncertain', async () => {
+  const { api } = await openWorld(ACCOUNTS());
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-nubank', command: command(), date: '2026-11-16' });
+  api.hooks.beforeAdd = () => { throw new Error('disk full'); };
+  await assert.rejects(() => commitTransaction(api, mapped), { code: 'WRITE_UNCERTAIN', message: /Verifique no Actual/ });
+});
