@@ -45,7 +45,7 @@ Abra `http://localhost:3000` pelo endereço do servidor. Não abra o `public/ind
 
 | Variável | Padrão | Descrição |
 | --- | --- | --- |
-| `APP_SECRET` | (obrigatória) | Chave com pelo menos 32 caracteres aleatórios. Cifra as credenciais do Actual guardadas no SQLite e assina as sessões. **Faça uma cópia segura**: se ela se perder, as conexões salvas precisam ser refeitas e todos precisam entrar de novo. |
+| `APP_SECRET` | (obrigatória) | Chave com pelo menos 32 caracteres aleatórios. Cifra as credenciais do Actual guardadas no SQLite e assina as sessões. **Faça uma cópia segura**: se ela se perder, as conexões salvas com o Actual precisam ser refeitas. |
 | `HOST` | `127.0.0.1` | Interface de escuta. |
 | `PORT` | `3000` | Porta HTTP. |
 | `DATA_DIR` | `./data` | Diretório persistente com o banco `finance-chat.sqlite`, os caches do Actual (`actual/<id do usuário>/`) e os backups. Em produção, deixe fora da pasta do código (`/var/lib/finance-chat`). |

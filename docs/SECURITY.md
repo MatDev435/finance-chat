@@ -2,7 +2,7 @@
 
 ## Segredos
 
-- **`APP_SECRET`** fica fora do banco (variável de ambiente, `.env` ou `EnvironmentFile` com permissão `600`). Dela derivam, via HKDF, chaves independentes para cifrar credenciais e assinar access tokens. Sem ela, as credenciais salvas não podem ser lidas: os usuários precisam reconfigurar a conexão e entrar de novo.
+- **`APP_SECRET`** fica fora do banco (variável de ambiente, `.env` ou `EnvironmentFile` com permissão `600`). Dela derivam, via HKDF, chaves independentes para cifrar credenciais e assinar access tokens. Sem ela, as credenciais salvas não podem ser lidas e cada usuário precisa reconfigurar a conexão. As sessões continuam válidas, porque o refresh token não depende da chave. Para encerrar todas as sessões (por exemplo, após um vazamento), pare o serviço e apague a tabela `sessions`: `DELETE FROM sessions;`.
 - **Credenciais do Actual** (senha do servidor ou chave de API e senha de criptografia) são cifradas com AES-256-GCM no SQLite. O ID do usuário e o nome do campo entram como dados autenticados, então um valor copiado para outro usuário ou campo não decifra.
 - As credenciais nunca são enviadas ao navegador, gravadas em logs ou devolvidas pela API. Uma senha salva **nunca** é reaproveitada para um endereço de servidor diferente sem ser digitada de novo.
 - A API do Actual é iniciada com `verbose: false`, porque no modo verboso ela registra o corpo de requisições que falharam, e esse corpo pode conter a senha.

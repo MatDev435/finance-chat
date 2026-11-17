@@ -49,6 +49,16 @@ O `@actual-app/api` mantém **um servidor e um orçamento abertos por processo**
 
 Com cache local, reabrir um orçamento é barato: a API carrega o arquivo local e sincroniza. Por isso a troca de contexto entre usuários custa pouco numa instalação pessoal ou familiar. Como as operações são serializadas, um servidor Actual lento atrasa os demais usuários, no máximo até o prazo de 60 s do `fetch`.
 
+Medições com servidores Actual 26.9.0 locais (Node 24, orçamentos de teste com 8 contas e 30 categorias):
+
+| Situação | Memória (RSS) | Tempo por requisição |
+| --- | --- | --- |
+| Processo ocioso (API carregada) | ~120 MB | (não se aplica) |
+| Um usuário com o orçamento aberto | ~165–180 MB | ~4 ms (listar contas, com sync) |
+| Alternância contínua entre dois usuários em servidores diferentes | estabiliza em ~290 MB, sem crescimento após 300 trocas | ~80 ms (troca de contexto) |
+
+Cada troca de contexto faz login e sincronização no servidor Actual do usuário. O servidor Actual limita cada IP a 500 requisições por minuto, um volume muito acima do uso real de um chat pessoal.
+
 ## Fluxo de uma transação
 
 1. `POST /api/chat/preview` com `{ accountId, message }`: o parser interpreta a mensagem; dentro da fila, o Finance Chat sincroniza, valida a conta (por ID) e a categoria e monta a transação. **Nada é gravado.** A prévia fica em memória com um `pendingId` aleatório.
