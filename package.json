@@ -1,14 +1,20 @@
 {
   "name": "finance-chat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test test/*.test.js",
+    "backup": "node scripts/backup.js"
   },
   "dependencies": {
-    "@actual-app/api": "^26.1.0",
+    "@actual-app/api": "^26.11.0",
+    "better-sqlite3": "^13.2.0",
     "dotenv": "^16.4.7"
+  },
+  "description": "Chat self-hosted para registrar movimentações no Actual Budget em linguagem natural, sem IA.",
+  "engines": {
+    "node": ">=20"
   }
 }

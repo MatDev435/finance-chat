@@ -13,7 +13,7 @@ const categories = [
 
 function validated(message) {
   const command = parseCommand(message);
-  return validateCommand(command, { accounts, categories });
+  return validateCommand(command, { accounts, categories, accountId: 'account-bradesco' });
 }
 
 test('maps an expense payee, account, category, and cents without notes', () => {

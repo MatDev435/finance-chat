@@ -58,6 +58,10 @@ Tenho R$ 50 para gastar em Alimentação
 
 Essas mensagens são somente leitura.
 
+## Conta
+
+A mensagem não informa a conta: ela vem da conversa em que a mensagem foi enviada, identificada pelo ID estável da conta no Actual. O parser não mudou com a introdução das múltiplas contas.
+
 ## Erros
 
-Entradas inválidas usam `code: INVALID_COMMAND`. Conta ou categoria inexistente usam `VALIDATION_ERROR` na etapa de validação.
+Entradas inválidas usam `code: INVALID_COMMAND`. Categoria inexistente usa `VALIDATION_ERROR` (transações) ou `CATEGORY_NOT_FOUND` (perguntas de saldo). Conta inexistente, fechada ou fora do orçamento usa `ACCOUNT_UNAVAILABLE`.

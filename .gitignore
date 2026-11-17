@@ -9,13 +9,17 @@ node_modules/
 *.key
 .aws/
 
-# Actual Budget cache and local databases (may contain financial data)
+# Finance Chat data: SQLite database, Actual Budget caches and backups
+# (contain credentials, sessions and financial data)
 /data/
+/backups/
 *.db
 *.db-*
 *.sqlite
 *.sqlite3
 *.sqlite-*
+*.sqlite3-*
+*.bak
 
 # Generated output, coverage, and caches
 /dist/
@@ -40,6 +44,7 @@ npm-debug.log*
 .vscode/
 .agents/
 .codex/
+.claude/
 
 # Operating system metadata
 .DS_Store

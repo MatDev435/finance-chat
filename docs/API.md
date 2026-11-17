@@ -1,43 +1,101 @@
 # API HTTP
 
-As rotas estão implementadas em `src/server.js`.
+Implementada em `src/app.js`. Todas as respostas são JSON com `ok: true|false`. Erros trazem `code` (estável, para o frontend) e `error` (mensagem em português). Alguns trazem também `field` (campo inválido) ou `reason` (causa de falha do Actual).
 
-## Rotas
+## Regras gerais
+
+- Rotas `/api/*` exigem sessão, exceto as de `/api/auth/*`.
+- Requisições que alteram estado (`POST`, `PUT`) precisam de `Content-Type: application/json` e são recusadas (`403`) se vierem de outro site (`Origin` ou `Sec-Fetch-Site`).
+- O corpo é limitado a 16 KB.
+- A sessão usa dois cookies `HttpOnly`, com `SameSite=Strict`: `fc_access` (15 minutos, `Path=/`) e `fc_refresh` (`Path=/api/auth`).
+- Um `401` com `AUTH_REQUIRED` indica access token expirado ou ausente: chame `POST /api/auth/refresh` e repita a requisição.
+
+## Saúde
 
 ### `GET /health`
 
-Retorna `200` com `{ "ok": true }`. Verifica apenas o processo HTTP, não a conexão com o Actual.
+`200 { ok: true }`. Verifica apenas o processo HTTP.
 
-### `POST /parse`
+## Autenticação
 
-Recebe `{ "message": "..." }` e retorna o comando parseado. Mensagens inválidas retornam `400`.
+| Rota | Corpo | Respostas |
+| --- | --- | --- |
+| `GET /api/auth/options` | (nenhum) | `200 { signupOpen, firstUser }` |
+| `POST /api/auth/register` | `{ username, password }` | `201 { user }` com cookies · `400 INVALID_INPUT` · `403 SIGNUP_DISABLED` · `409 USERNAME_TAKEN` · `429` |
+| `POST /api/auth/login` | `{ username, password }` | `200 { user }` com cookies · `401 INVALID_CREDENTIALS` · `429 TOO_MANY_ATTEMPTS` (com `Retry-After`) |
+| `POST /api/auth/refresh` | `{}` | `200` com cookies novos · `401 SESSION_EXPIRED` (cookies apagados) |
+| `POST /api/auth/logout` | `{}` | `200` (sessão revogada, cookies apagados) |
 
-### `POST /validate`
+## Usuário e conexão
 
-Interpreta a mensagem, consulta contas/categorias e valida `Bradesco` e a categoria. Erros de validação retornam `400`; falhas do Actual retornam `503`.
+### `GET /api/me`
 
-### `POST /preview`
+```json
+{
+  "ok": true,
+  "user": { "id": 1, "username": "ana" },
+  "connection": { "configured": true, "serverUrl": "https://actual.exemplo.com", "syncId": "…", "authMethod": "password", "hasEncryptionPassword": false },
+  "settings": { "defaultAccountId": "uuid-da-conta" }
+}
+```
 
-É a rota principal do chat. Para uma transação, interpreta, valida, mapeia e guarda um preview pendente sem escrever no Actual. Para perguntas de categoria, retorna disponibilidade, valor solicitado, saldo restante e `canSpend` quando aplicável.
+Nunca devolve senhas, chaves ou tokens.
 
-### `POST /confirm`
+### `POST /api/connection/test` e `PUT /api/connection`
 
-Escreve a transação pendente com `addTransactions`. Retorna `409` sem pendência ou durante outra confirmação e `503` quando o Actual falha.
+Corpo:
 
-### `POST /cancel`
+```json
+{ "serverUrl": "https://actual.exemplo.com", "syncId": "…", "authMethod": "password", "serverSecret": "…", "useEncryption": false, "encryptionPassword": "" }
+```
 
-Remove a pendência sem escrever e retorna `200`.
+- `authMethod`: `password` (senha do servidor) ou `token` (chave de API, passada como `sessionToken` à API).
+- Ao editar, `serverSecret` vazio mantém a senha salva, **desde que o servidor não mude**. O mesmo vale para `encryptionPassword` quando servidor e Sync ID não mudam.
+- `test` abre o orçamento e devolve `{ accounts, message }` sem salvar. `PUT` testa e só salva se o teste passar.
+- Erros: `400 INVALID_INPUT` (com `field`), `503 ACTUAL_ERROR` (com `reason`: `authentication`, `token`, `budget-not-found`, `encryption-required`, `encryption`, `network`, `version`, `clock-drift`, `actual`).
 
-### `GET /api/accounts` e `GET /api/categories`
+## Contas e preferências
 
-Retornam listas consultadas no Actual. Falhas retornam `503`.
+### `GET /api/accounts`
+
+Sincroniza e devolve as contas abertas e dentro do orçamento: `{ accounts: [{ id, name }] }`. Erros: `409 CONNECTION_REQUIRED`, `409 CONNECTION_UNREADABLE` (a `APP_SECRET` mudou), `503 ACTUAL_ERROR`.
+
+### `PUT /api/settings`
+
+`{ defaultAccountId: "uuid" | null }`. A conta precisa estar na lista atual do usuário (`409 ACCOUNT_UNAVAILABLE` se não estiver).
+
+## Chat
+
+### `POST /api/chat/preview`
+
+`{ accountId, message }` (mensagem com até 500 caracteres). Não grava nada.
+
+- Transação: `{ kind: "transaction", pendingId, expiresAt, preview: { command, account, category, transaction, text } }`.
+- `Quanto tenho em X?`: `{ kind: "category-available", message, category, month, available }`.
+- `Posso gastar R$ N com X?`: `{ kind: "category-can-spend", message, category, month, available, requested, remaining, canSpend }`.
+
+Valores em centavos, exceto `command.amount`. Erros: `400 INVALID_COMMAND | VALIDATION_ERROR | CATEGORY_NOT_FOUND | INVALID_INPUT`, `409 ACCOUNT_UNAVAILABLE | CONNECTION_REQUIRED`, `503 ACTUAL_ERROR`.
+
+### `POST /api/chat/confirm`
+
+`{ pendingId }`. Grava uma vez, na conta da prévia.
+
+- `200 { synced: true, account, message }`: gravada e sincronizada.
+- `200 { synced: false, account, message }`: gravada na cópia local; será enviada ao servidor na próxima sincronização. **Não reenvie.**
+- `409 NO_PENDING_TRANSACTION | PENDING_EXPIRED | CONNECTION_CHANGED | ACCOUNT_UNAVAILABLE`: nada foi gravado.
+- `503 ACTUAL_ERROR`: falha antes da gravação, nada foi gravado.
+- `503 WRITE_UNCERTAIN`: a própria gravação falhou. Verifique no Actual antes de tentar de novo.
+
+### `POST /api/chat/cancel`
+
+`{ pendingId }`: `200 { message: "Movimentação cancelada." }`. Idempotente.
 
 ## Arquivos estáticos
 
-`GET /` serve `public/index.html`; `/app.js` e `/app.css` servem os assets. Caminhos inexistentes retornam `404`.
+`GET /` serve `public/index.html`. Arquivos `.html`, `.css`, `.js` e `.svg` dentro de `public/` são servidos com `Cache-Control: no-cache`. Qualquer outro caminho devolve `404`.
 
-## CORS
+## Mudanças em relação à versão 0.1
 
-`CORS_ORIGIN` é opcional e deve conter uma origem exata. Headers CORS são enviados somente quando o header `Origin` coincide exatamente. `OPTIONS` de origem não autorizada retorna `403`. Para frontend e backend na mesma origem, mantenha a variável vazia.
-
-As respostas não incluem credenciais. A aplicação não implementa autenticação própria; proteção externa/rede confiável é necessária antes de exposição pública.
+- `/preview`, `/confirm` e `/cancel` viraram `/api/chat/*` e exigem `accountId` e `pendingId`.
+- `/parse`, `/validate` e `/api/categories` foram removidas: não eram usadas pelo frontend e não tinham autenticação.
+- `CORS_ORIGIN` foi removida: frontend e API ficam sempre na mesma origem.
