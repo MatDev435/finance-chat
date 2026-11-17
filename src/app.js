@@ -119,7 +119,10 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
   const routes = {
     'GET /api/auth/options': {
       public: true,
-      handler: (ctx) => sendJson(ctx.response, 200, { ok: true, signupOpen: config.allowSignup || auth.userCount() === 0 }),
+      handler(ctx) {
+        const firstUser = auth.userCount() === 0;
+        return sendJson(ctx.response, 200, { ok: true, signupOpen: config.allowSignup || firstUser, firstUser });
+      },
     },
 
     'POST /api/auth/register': {
