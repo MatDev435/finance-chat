@@ -9,7 +9,7 @@
     "backup": "node scripts/backup.js"
   },
   "dependencies": {
-    "@actual-app/api": "^26.1.0",
+    "@actual-app/api": "^26.11.0",
     "better-sqlite3": "^12.11.1",
     "dotenv": "^16.4.7"
   },

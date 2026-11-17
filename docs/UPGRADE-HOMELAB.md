@@ -67,7 +67,7 @@ sudo grep -E '^(ACTUAL_DATA_DIR|HOST|PORT|APP_TIME_ZONE|CORS_ORIGIN)=' <PASTA_AN
 
 Anote `HOST`, `PORT` e `APP_TIME_ZONE`: os mesmos valores serão usados na versão nova, para que o Caddy continue funcionando sem mudanças. Se `CORS_ORIGIN` estiver preenchida, o frontend era servido de outra origem, e esse modo não existe mais: use o endereço do próprio Finance Chat.
 
-Verifique também a versão do servidor Actual. O Finance Chat 0.2 usa `@actual-app/api` 26.9.0:
+Verifique também a versão do servidor Actual. O Finance Chat 0.2 usa `@actual-app/api` 26.11.0:
 
 ```bash
 curl -s https://SEU-ACTUAL/info
