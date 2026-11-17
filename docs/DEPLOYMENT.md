@@ -33,6 +33,12 @@ cd /opt/finance-chat
 sudo npm ci --omit=dev
 ```
 
+Antes, instale as ferramentas de compilação: o `better-sqlite3` 13 (exigido pelo `@actual-app/api` 26.11) é compilado na instalação e precisa de `make`, `g++` e `python3`:
+
+```bash
+sudo apt install -y build-essential python3
+```
+
 O código pertence ao `root` e é só leitura para o serviço, que escreve apenas em `/var/lib/finance-chat`. Confira se o SQLite nativo carregou:
 
 ```bash

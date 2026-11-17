@@ -156,6 +156,12 @@ cd <PASTA_NOVA>
 sudo npm ci --omit=dev
 ```
 
+Antes, instale as ferramentas de compilação: o `better-sqlite3` 13 (exigido pelo `@actual-app/api` 26.11) é compilado na instalação e precisa de `make`, `g++` e `python3`:
+
+```bash
+sudo apt install -y build-essential python3
+```
+
 O `npm ci` instala exatamente as versões do `package-lock.json`, sem as dependências de desenvolvimento. Confira se o SQLite nativo carrega com o Node do serviço:
 
 ```bash
