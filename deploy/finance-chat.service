@@ -1,0 +1,46 @@
+# Exemplo de unit systemd para o Finance Chat (Ubuntu Server).
+# Copie para /etc/systemd/system/finance-chat.service e ajuste User, Group,
+# WorkingDirectory, ExecStart (caminho do node) e EnvironmentFile.
+# Veja docs/DEPLOYMENT.md e docs/UPGRADE-HOMELAB.md.
+
+[Unit]
+Description=Finance Chat
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=finance-chat
+Group=finance-chat
+WorkingDirectory=/opt/finance-chat
+# Variáveis (APP_SECRET etc.). Arquivo com permissão 600, dono root ou o usuário do serviço.
+# Alternativa: deixar um .env na WorkingDirectory (lido pelo dotenv) e remover esta linha.
+EnvironmentFile=/etc/finance-chat/finance-chat.env
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+
+# Dados persistentes: o systemd cria /var/lib/finance-chat com dono User e modo 0700,
+# e não o apaga em atualizações do código.
+StateDirectory=finance-chat
+StateDirectoryMode=0700
+Environment=DATA_DIR=/var/lib/finance-chat
+# Arquivos novos (banco, caches, backups) legíveis só pelo usuário do serviço.
+UMask=0077
+
+# Endurecimento. Se o código ou o node estiverem dentro de /home (ex.: nvm),
+# troque ProtectHome=true por ProtectHome=read-only.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/finance-chat
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+# Backup diário do banco SQLite do Finance Chat (usado com finance-chat-backup.timer).
+# Ajuste User, WorkingDirectory, ExecStart e EnvironmentFile como em finance-chat.service.
+
+[Unit]
+Description=Backup do banco do Finance Chat
+
+[Service]
+Type=oneshot
+User=finance-chat
+Group=finance-chat
+WorkingDirectory=/opt/finance-chat
+EnvironmentFile=/etc/finance-chat/finance-chat.env
+Environment=DATA_DIR=/var/lib/finance-chat
+UMask=0077
+ExecStart=/usr/bin/node scripts/backup.js
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/finance-chat

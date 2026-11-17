@@ -1,0 +1,12 @@
+# Ative com: sudo systemctl enable --now finance-chat-backup.timer
+
+[Unit]
+Description=Backup diário do banco do Finance Chat
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -2,52 +2,75 @@
 
 ## Visão geral
 
-O Finance Chat é uma aplicação Node.js sem framework de frontend e sem Docker:
+Um único processo Node.js, sem framework de backend nem de frontend, sem etapa de build e sem Docker:
 
 ```text
-navegador -> src/server.js -> parser/validação/estado pendente -> @actual-app/api -> Actual Budget
+navegador ── HTTP ──> src/server.js ─> src/app.js (rotas)
+                                          ├─ auth.js        (usuários, sessões)        ─┐
+                                          ├─ user-store.js  (conexão e preferências)  ─┴─> SQLite (better-sqlite3)
+                                          ├─ parser.js / validation.js / transaction-mapping.js
+                                          └─ actual.js (fila exclusiva) ─> @actual-app/api ─> servidor Actual do usuário
 ```
 
-O próprio backend serve o HTML, CSS, JavaScript e a API. Em uma instalação normal, tudo usa a mesma origem e CORS não é necessário.
+O mesmo processo serve o frontend estático (`public/`) e a API (`/api/*`) na mesma origem.
 
-## Estrutura
+## Backend (`src/`)
 
-### `src/`
+| Arquivo | Responsabilidade |
+| --- | --- |
+| `server.js` | Ponto de entrada: valida a configuração, instala o timeout do `fetch`, importa a API do Actual, abre o banco, inicia o HTTP e encerra de forma limpa no `SIGTERM`. |
+| `app.js` | `createApp()`: tabela de rotas, autenticação das rotas, CSRF, limites de tentativas, mapeamento de erros e textos das respostas. |
+| `http.js` | Utilitários HTTP: JSON com limite de tamanho, cookies, IP do cliente, detecção de HTTPS, cabeçalhos de segurança, arquivos estáticos. |
+| `config.js` | Lê e valida variáveis de ambiente. Recusa iniciar sem `APP_SECRET`. |
+| `db.js` | Abre o SQLite (WAL, chaves estrangeiras, permissão 600) e aplica as migrações. |
+| `auth.js` | Hash `scrypt`, access token HMAC, sessões com refresh token rotativo e detecção de reuso. |
+| `rate-limit.js` | Contador em memória com janela fixa e memória limitada. |
+| `secrets.js` | AES-256-GCM com chave derivada da `APP_SECRET` (HKDF) e dados vinculados ao usuário e ao campo. |
+| `user-store.js` | Conexão de cada usuário com o Actual (cifrada) e preferência de conta padrão. Valida o formulário de conexão. |
+| `actual.js` | Gerenciador da API do Actual: fila exclusiva, troca de contexto por usuário, cache por usuário, mensagens de erro claras. |
+| `budget-operations.js` | Operações sobre o orçamento aberto: listar contas, preparar a prévia, gravar a transação confirmada. |
+| `accounts.js` | Regras de conta: só contas abertas e dentro do orçamento; seleção estritamente por ID. |
+| `parser.js` | Parser determinístico de comandos e perguntas em português. |
+| `validation.js` | Valida conta (por ID) e categoria (por nome) contra o orçamento. |
+| `transaction-mapping.js` | Converte o comando para o formato do Actual (centavos, `payee_name`, `notes`). |
+| `budget-availability.js`, `category-queries.js` | Consultas de saldo por categoria. |
+| `pending.js` | Prévias aguardando confirmação: em memória, uma por usuário e conta, com ID de uso único e expiração. |
+| `backup.js` | Backup online do SQLite com rotação. |
+| `fetch-timeout.js` | Prazo de 60 s para todo `fetch`. |
 
-- `server.js`: servidor HTTP, arquivos estáticos, rotas e coordenação dos fluxos.
-- `parser.js`: comandos e perguntas em português, valores e notas opcionais.
-- `validation.js`: valida a conta fixa `Bradesco` e a categoria existente no Actual.
-- `transaction-mapping.js`: converte comandos para o formato do Actual.
-- `actual.js`: inicializa a API oficial, baixa o orçamento, consulta e cria transações.
-- `budget-availability.js`: procura categorias/saldos e sincroniza antes de consultas de disponibilidade.
-- `category-queries.js`: calcula saldo restante e possibilidade de gasto.
-- `pending.js`: mantém uma única confirmação pendente em memória e bloqueia concorrência.
+## A API do Actual é um singleton
 
-### `public/`
+O `@actual-app/api` mantém **um servidor e um orçamento abertos por processo**: `init()` define o servidor e o diretório de dados, e `downloadBudget()` abre um orçamento. Para atender vários usuários com segurança, `actual.js`:
 
-- `index.html`: estrutura da interface e mensagem inicial.
-- `app.js`: estado do chat, chamadas HTTP, preview, confirmação, cancelamento, cards e agrupamento de mensagens.
-- `app.css`: tema, layout responsivo, acessibilidade visual e animações.
+1. executa **todas** as operações numa fila exclusiva, e só libera a fila quando a operação termina de fato;
+2. antes de cada operação, compara a conexão do usuário (servidor, arquivo e credenciais) com a que está aberta. Se for diferente, executa `shutdown()`, `init()` e `downloadBudget()`;
+3. usa um diretório de cache por usuário: `DATA_DIR/actual/<id do usuário>/`;
+4. fecha o orçamento após qualquer falha do Actual, para que a próxima operação reconecte do zero.
 
-### `test/`
+Com cache local, reabrir um orçamento é barato: a API carrega o arquivo local e sincroniza. Por isso a troca de contexto entre usuários custa pouco numa instalação pessoal ou familiar. Como as operações são serializadas, um servidor Actual lento atrasa os demais usuários, no máximo até o prazo de 60 s do `fetch`.
 
-Testes nativos do Node.js para parser, disponibilidade, regras de consulta, pendência, mapeamento e validação.
+## Fluxo de uma transação
 
-## Fluxo de transação
+1. `POST /api/chat/preview` com `{ accountId, message }`: o parser interpreta a mensagem; dentro da fila, o Finance Chat sincroniza, valida a conta (por ID) e a categoria e monta a transação. **Nada é gravado.** A prévia fica em memória com um `pendingId` aleatório.
+2. `POST /api/chat/confirm` com `{ pendingId }`: a prévia é **removida antes** da gravação (não há duplicata em confirmações repetidas), conta e categoria são revalidadas com dados recém-sincronizados, a transação é gravada com `addTransactions()` e o orçamento é sincronizado.
+3. Se a sincronização depois da gravação falhar, a resposta informa que a transação ficou na cópia local e será enviada na próxima sincronização. Não há retry automático.
+4. `POST /api/chat/cancel` descarta a prévia.
 
-1. `POST /preview` interpreta e valida a mensagem.
-2. O preview é guardado em memória; nenhuma escrita ocorre.
-3. `POST /confirm` chama `addTransactions` e depois `sync()`.
-4. `POST /cancel` limpa a pendência sem escrever.
+## Frontend (`public/`)
 
-## Fluxo de disponibilidade
+HTML, CSS e JavaScript (módulos ES nativos), sem framework e sem build.
 
-Perguntas como `Quanto ainda tenho em Alimentação?` e `Posso gastar R$ 50 em Alimentação?` usam o mês atual em `APP_TIME_ZONE`. Antes de ler categorias e o mês do orçamento, `getCategoryAvailability` chama `api.sync()` para evitar dados obsoletos.
+| Arquivo | Responsabilidade |
+| --- | --- |
+| `index.html` | Telas: carregando, login/cadastro, configuração do Actual, workspace (contas, conversa e configurações). |
+| `app.css` | Identidade visual original (tema escuro roxo), layout em duas colunas e regras responsivas. |
+| `app.js` | Controlador: telas, lista de contas, troca de conversas, envio, confirmação, menu, navegação mobile. |
+| `js/api.js` | Cliente JSON com renovação automática da sessão. |
+| `js/chat-view.js` | Renderização das mensagens e dos cards (prévia e disponibilidade). |
+| `js/history.js` | Histórico visual em `localStorage` (10 mensagens por conversa, por usuário e ID da conta). |
+| `js/navigation.js` | Regras puras de navegação (conta inicial, seleção, painel visível). |
+| `js/setup.js`, `js/settings.js` | Formulário de conexão e painel de configurações. |
 
-## Limitações
+## Testes (`test/`)
 
-- Não há banco de dados nem histórico persistente.
-- A pendência é perdida quando o processo reinicia.
-- A conta de criação é sempre `Bradesco`.
-- Categorias não são criadas automaticamente.
-- A confirmação explícita é obrigatória para escrever uma transação.
+Testes nativos do Node (`node:test`). `test/support/fake-actual.js` simula a API do Actual, inclusive o comportamento singleton, e `test/app.test.js` exercita a API HTTP completa com SQLite em memória. Nenhum teste acessa um servidor Actual real.
