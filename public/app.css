@@ -22,6 +22,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .brand-mark, .avatar { display: grid; place-items: center; flex: 0 0 auto; color: var(--purple-light); background: linear-gradient(145deg, #2e155d, #1d1239); border: 1px solid #52318d; box-shadow: 0 0 1.5rem #7028d426 inset; }
 .brand-mark { width: 3.7rem; height: 3.7rem; border-radius: 1rem; }
 .brand-mark svg, .avatar svg { width: 2rem; height: 2rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* Brand symbol (brand kit): keep a free margin of 1/8 around it inside the tiles. */
+.brand-mark img { width: 2.3rem; height: 2.3rem; } .avatar img { width: 1.6rem; height: 1.6rem; } .typing-avatar img { width: 1.45rem; height: 1.45rem; }
 .brand-copy { min-width: 0; }
 .brand-copy h1 { margin: 0; font-size: clamp(1.4rem, 2.2vw, 1.75rem); letter-spacing: -.04em; }
 .brand-copy p { margin: .2rem 0 0; color: var(--muted); font-size: .9rem; }
@@ -210,7 +212,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 }
 @media (max-width: 700px) {
   body { padding: 0; } .app-shell { padding: max(.85rem, env(safe-area-inset-top)) max(.7rem, env(safe-area-inset-right)) max(.65rem, env(safe-area-inset-bottom)) max(.7rem, env(safe-area-inset-left)); border: 0; border-radius: 0; }
-  .topbar { padding-bottom: .8rem; } .brand-mark { width: 2.9rem; height: 2.9rem; border-radius: .8rem; } .brand-mark svg { width: 1.55rem; height: 1.55rem; }
+  .topbar { padding-bottom: .8rem; } .brand-mark { width: 2.9rem; height: 2.9rem; border-radius: .8rem; } .brand-mark svg, .brand-mark img { width: 1.8rem; height: 1.8rem; }
   .brand-copy h1 { font-size: 1.25rem; } .brand-copy p { font-size: .78rem; } .conversation { padding: .7rem .45rem 1rem; } .message { font-size: .91rem; } .message-row { max-width: 100%; } .user-row { max-width: 88%; }
   .transaction-card { padding: .8rem; } .transaction-icon { width: 2.6rem; height: 2.6rem; } .detail-row { grid-template-columns: 1.2rem minmax(max-content, 1fr) minmax(0, auto); font-size: .8rem; } .grouped-row { padding-left: 2.85rem; } .composer { margin: .7rem 0 .4rem; } .privacy-note { display: none; }
   .workspace { grid-template-columns: minmax(0, 1fr); gap: 0; }
