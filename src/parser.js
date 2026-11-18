@@ -172,9 +172,12 @@ export function parseCommand(input) {
   return command;
 }
 
+const UNDO_COMMAND = /^(?:desfazer|desfaz|desfaça|desfaca)(?:\s+(?:o\s+)?(?:último|ultimo)(?:\s+(?:lançamento|lancamento|registro|movimentação|movimentacao))?)?[.!]*$/i;
+
 export function parseMessage(input) {
   const text = normalizeText(input);
   if (!text) fail('Digite uma mensagem financeira.');
+  if (UNDO_COMMAND.test(text)) return { kind: 'undo' };
   return parseCanSpendQuestion(text)
     || parseAvailableCategoryQuestion(text)
     || { kind: 'transaction', command: parseCommand(text) };

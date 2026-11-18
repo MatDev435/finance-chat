@@ -39,7 +39,7 @@ export function entrySummary(entry) {
   if (entry.kind === 'preview') {
     const value = Number(entry.data?.amount ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const label = entry.data?.type === 'income' ? 'Receita' : 'Despesa';
-    const state = { confirmed: 'registrada', cancelled: 'cancelada', failed: 'não registrada' }[entry.status] || 'pendente';
+    const state = { confirmed: 'registrada', cancelled: 'cancelada', failed: 'não registrada', undone: 'desfeita' }[entry.status] || 'pendente';
     return `${label} de ${value} ${state}`;
   }
   const firstLine = String(entry.text || '').split('\n')[0];

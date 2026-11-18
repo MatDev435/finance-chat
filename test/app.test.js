@@ -549,3 +549,74 @@ test('split purchases: preview lists the parts, confirmation writes one transact
   assert.equal(budget.transactions.length, 1);
   await app.close();
 });
+
+test('undo: the last confirmed transaction of a chat can be undone once, by button or by typing "desfazer"', async () => {
+  const app = await startApp();
+  const browser = await signedIn(app, 'ana', ANA_CONNECTION);
+  const budget = app.servers['https://ana.example'].files['sync-ana-0001'];
+  const confirmOne = async (accountId, message) => {
+    const preview = await browser.post('/api/chat/preview', { accountId, message });
+    return (await browser.post('/api/chat/confirm', { pendingId: preview.body.pendingId })).body;
+  };
+
+  const first = await confirmOne('acc-nubank', 'Gastei 40 no mercado categoria alimentação');
+  assert.ok(first.undoId);
+  assert.ok(first.undoTtlMs > 9 * 60 * 1000);
+  const undone = await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: first.undoId });
+  assert.equal(undone.status, 200);
+  assert.match(undone.body.message, /Movimentação desfeita: Despesa de R\$\s?40,00 para mercado/);
+  assert.equal(budget.transactions.length, 0);
+  assert.equal((await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: first.undoId })).body.code, 'NO_UNDO');
+
+  // Only the most recent one per chat: the older one is no longer undoable.
+  const a = await confirmOne('acc-nubank', 'Gastei 1 na banca categoria alimentação');
+  const b = await confirmOne('acc-nubank', 'Gastei 2 na banca categoria alimentação');
+  assert.equal((await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: a.undoId })).status, 409);
+  const typed = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'desfazer' });
+  assert.equal(typed.status, 200);
+  assert.equal(typed.body.kind, 'undo');
+  assert.equal(typed.body.undoneId, b.undoId);
+  assert.deepEqual(budget.transactions.map((t) => t.amount), [-100]);
+  const nothing = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'desfazer' });
+  assert.equal(nothing.status, 409);
+  assert.equal(nothing.body.code, 'NO_UNDO');
+
+  // Undo is per chat: an undo id cannot be used from another chat (and stays valid in its own).
+  const c = await confirmOne('acc-inter', 'Gastei 3 na banca categoria alimentação');
+  assert.equal((await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: c.undoId })).status, 409);
+  assert.equal((await browser.post('/api/chat/undo', { accountId: 'acc-inter', undoId: c.undoId })).status, 200);
+  await app.close();
+});
+
+test('undo is refused when the transaction was changed in Actual, and for other users', async () => {
+  const app = await startApp();
+  const ana = await signedIn(app, 'ana', ANA_CONNECTION);
+  const bia = await signedIn(app, 'bia', BIA_CONNECTION);
+  const budget = app.servers['https://ana.example'].files['sync-ana-0001'];
+  const preview = await ana.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 40 no mercado categoria alimentação' });
+  const confirm = (await ana.post('/api/chat/confirm', { pendingId: preview.body.pendingId })).body;
+
+  assert.equal((await bia.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: confirm.undoId })).status, 409, 'another user');
+  budget.transactions[0].amount = -4100;
+  const changed = await ana.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: confirm.undoId });
+  assert.equal(changed.status, 409);
+  assert.equal(changed.body.code, 'UNDO_CHANGED');
+  assert.equal(budget.transactions.length, 1, 'never deletes a modified transaction');
+  await app.close();
+});
+
+test('undo stays available when Actual is unreachable, and split purchases are undone whole', async () => {
+  const app = await startApp();
+  const browser = await signedIn(app, 'ana', ANA_CONNECTION);
+  const budget = app.servers['https://ana.example'].files['sync-ana-0001'];
+  const preview = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 100 no mercado categorias 70 alimentação, 30 salário' });
+  const confirm = (await browser.post('/api/chat/confirm', { pendingId: preview.body.pendingId })).body;
+  app.servers['https://ana.example'].offline = true;
+  const offline = await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: confirm.undoId });
+  assert.equal(offline.status, 503);
+  assert.match(offline.body.error, /Nada foi desfeito/);
+  app.servers['https://ana.example'].offline = false;
+  assert.equal((await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: confirm.undoId })).status, 200);
+  assert.equal(budget.transactions.length, 0);
+  await app.close();
+});

@@ -9,7 +9,7 @@ const VERSION = 'v1';
 const MAX_TEXT = 2000;
 const ROLES = new Set(['user', 'assistant']);
 const KINDS = new Set(['text', 'error', 'warning', 'preview', 'spending']);
-const STATUSES = new Set(['pending', 'confirmed', 'cancelled', 'failed']);
+const STATUSES = new Set(['pending', 'confirmed', 'cancelled', 'failed', 'undone']);
 
 export function historyPrefix(userId) {
   return `finance-chat:history:${VERSION}:${userId}:`;

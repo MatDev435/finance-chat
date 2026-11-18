@@ -26,7 +26,8 @@ const PUBLIC_MESSAGES = {
   actual: 'Não foi possível consultar o Actual Budget.',
 };
 
-const DOMAIN_ERRORS = new Set(['VALIDATION_ERROR', 'ACCOUNT_UNAVAILABLE', 'INVALID_COMMAND', 'CATEGORY_NOT_FOUND']);
+const DOMAIN_ERRORS = new Set(['VALIDATION_ERROR', 'ACCOUNT_UNAVAILABLE', 'INVALID_COMMAND', 'CATEGORY_NOT_FOUND', 'UNDO_NOT_FOUND', 'UNDO_CHANGED']);
+const UNCERTAIN_ERRORS = new Set(['WRITE_UNCERTAIN', 'UNDO_UNCERTAIN']);
 
 function reasonFor(error) {
   const code = error?.code;
@@ -114,7 +115,7 @@ export function createActualManager({ api, dataRoot }) {
         } catch (error) {
           if (DOMAIN_ERRORS.has(error?.code)) throw error;
           await close();
-          if (error?.code === 'WRITE_UNCERTAIN') throw error;
+          if (UNCERTAIN_ERRORS.has(error?.code)) throw error;
           throw toActualError(error);
         }
       });

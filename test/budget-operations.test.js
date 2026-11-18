@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { commitTransaction, listChatAccounts, prepareTransaction } from '../src/budget-operations.js';
+import { commitTransaction, listChatAccounts, prepareTransaction, undoTransaction } from '../src/budget-operations.js';
 import { parseCommand } from '../src/parser.js';
 import { createBudget, createFakeActual } from './support/fake-actual.js';
 
@@ -50,10 +50,10 @@ test('the transaction goes to the selected account, not to another one', async (
   const { api, budget } = await openWorld(ACCOUNTS());
   const { mapped } = await prepareTransaction(api, { accountId: 'acc-inter', command: command(), date: '2026-11-16' });
   const result = await commitTransaction(api, mapped);
-  assert.deepEqual(result, { account: { id: 'acc-inter', name: 'Inter' }, synced: true });
   assert.equal(budget.transactions.length, 1);
-  assert.equal(budget.transactions[0].account, 'acc-inter');
-  assert.deepEqual(budget.transactions[0], { date: '2026-11-16', amount: -4000, payee_name: 'mercado', category: 'cat-food', account: 'acc-inter' });
+  const { id, ...stored } = budget.transactions[0];
+  assert.deepEqual(result, { account: { id: 'acc-inter', name: 'Inter' }, synced: true, transactionId: id });
+  assert.deepEqual(stored, { date: '2026-11-16', amount: -4000, payee_name: 'mercado', category: 'cat-food', account: 'acc-inter' });
 });
 
 test('preview refuses unknown, closed and off-budget accounts without any fallback', async () => {
@@ -125,4 +125,62 @@ test('a split purchase is written once with its parts; a part whose category van
   budget.categories = budget.categories.filter((category) => category.id !== 'cat-transport');
   await assert.rejects(() => commitTransaction(api, again.mapped), { code: 'VALIDATION_ERROR' });
   assert.equal(budget.transactions.length, 1);
+});
+
+test('commit identifies the created transaction even with others on the same day', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  budget.transactions.push({ id: 'existing', account: 'acc-nubank', date: '2026-11-18', amount: -100 });
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-nubank', command: command(), date: '2026-11-18' });
+  const result = await commitTransaction(api, mapped);
+  assert.notEqual(result.transactionId, 'existing');
+  assert.equal(budget.transactions.find((t) => t.id === result.transactionId).amount, -4000);
+});
+
+test('undo deletes only the transaction it created, if unchanged', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  budget.transactions.push({ id: 'other', account: 'acc-nubank', date: '2026-11-18', amount: -4000 });
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-nubank', command: command(), date: '2026-11-18' });
+  const { transactionId } = await commitTransaction(api, mapped);
+  const entry = { accountId: 'acc-nubank', transactionId, date: '2026-11-18', amount: -4000 };
+  assert.deepEqual(await undoTransaction(api, entry), { synced: true });
+  assert.deepEqual(budget.transactions.map((t) => t.id), ['other'], 'the identical-looking transaction is untouched');
+  await assert.rejects(() => undoTransaction(api, entry), { code: 'UNDO_NOT_FOUND' });
+});
+
+test('undo refuses a transaction changed in Actual, or moved to another date or account', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-nubank', command: command(), date: '2026-11-18' });
+  const { transactionId } = await commitTransaction(api, mapped);
+  const entry = { accountId: 'acc-nubank', transactionId, date: '2026-11-18', amount: -4000 };
+  budget.transactions[0].amount = -4500;
+  await assert.rejects(() => undoTransaction(api, entry), { code: 'UNDO_CHANGED' });
+  budget.transactions[0].amount = -4000;
+  budget.transactions[0].date = '2026-11-17';
+  await assert.rejects(() => undoTransaction(api, entry), { code: 'UNDO_NOT_FOUND' });
+  budget.transactions[0].date = '2026-11-18';
+  budget.transactions[0].account = 'acc-inter';
+  await assert.rejects(() => undoTransaction(api, entry), { code: 'UNDO_NOT_FOUND' });
+  assert.equal(budget.transactions.length, 1, 'nothing was deleted');
+});
+
+test('undo: sync failure before deleting changes nothing; a failing delete is uncertain', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-nubank', command: command(), date: '2026-11-18' });
+  const { transactionId } = await commitTransaction(api, mapped);
+  const entry = { accountId: 'acc-nubank', transactionId, date: '2026-11-18', amount: -4000 };
+  api.hooks.beforeSync = () => { throw Object.assign(new Error('offline'), { code: 'network-failure' }); };
+  await assert.rejects(() => undoTransaction(api, entry), { code: 'network-failure' });
+  assert.equal(budget.transactions.length, 1);
+  api.hooks.beforeSync = null;
+  api.hooks.beforeDelete = () => { throw new Error('disk'); };
+  await assert.rejects(() => undoTransaction(api, entry), { code: 'UNDO_UNCERTAIN' });
+});
+
+test('undo of a split purchase removes the whole transaction', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  const split = parseCommand('Gastei 100 no mercado categorias 70 alimentação, 30 transporte');
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-inter', command: split, date: '2026-11-18' });
+  const { transactionId } = await commitTransaction(api, mapped);
+  await undoTransaction(api, { accountId: 'acc-inter', transactionId, date: '2026-11-18', amount: -10000 });
+  assert.equal(budget.transactions.length, 0);
 });

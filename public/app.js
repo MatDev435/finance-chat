@@ -27,8 +27,9 @@ const state = {
   history: null,
   busy: new Set(),
   /**
-   * history entry id → live action for that message: { type: 'preview', accountId, pendingId }
-   * or { type: 'suggestions', accountId, message, suggestions }. Memory only: never persisted.
+   * history entry id → live action for that message: { type: 'preview', accountId, pendingId },
+   * { type: 'suggestions', accountId, message, suggestions } or
+   * { type: 'undo', accountId, undoId, previewEntryId }. Memory only: never persisted.
    */
   live: new Map(),
 };
@@ -374,7 +375,14 @@ function liveActionsFor(accountId, entry) {
   if (!item || item.accountId !== accountId) return undefined;
   if (item.type === 'preview' && entry.kind === 'preview' && entry.status === 'pending') return previewActions(accountId, entry.id);
   if (item.type === 'suggestions') return { suggestions: item.suggestions, onPick: (category) => pickSuggestion(accountId, entry.id, category) };
+  if (item.type === 'undo') return { onUndo: () => undoLive(accountId, entry.id) };
   return undefined;
+}
+
+/** Removes one message's live action (and its buttons, if on screen). */
+function removeLive(entryId) {
+  state.live.delete(entryId);
+  $('#conversation').querySelectorAll(`[data-live-entry="${entryId}"]`).forEach((row) => row.remove());
 }
 
 /** Stores the entry in this chat's local history and shows it if the chat is open. */
@@ -424,7 +432,15 @@ async function sendMessage(accountId, message, { categoryId, echo = message } = 
   setBusy(accountId, true);
   try {
     const data = await api('POST', '/api/chat/preview', { accountId, message, ...(categoryId ? { categoryId } : {}) });
-    if (data.kind === 'category-available') {
+    if (data.kind === 'undo') {
+      for (const [entryId, item] of state.live) {
+        if (item.type === 'undo' && item.undoId === data.undoneId) {
+          removeLive(entryId);
+          markUndone(accountId, item.previewEntryId);
+        }
+      }
+      addEntry(accountId, { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message });
+    } else if (data.kind === 'category-available') {
       addEntry(accountId, { role: 'assistant', kind: 'text', text: data.message });
     } else if (data.kind === 'category-can-spend') {
       addEntry(accountId, {
@@ -505,7 +521,15 @@ async function confirmPreview(accountId, entryId, ui) {
   try {
     const data = await api('POST', '/api/chat/confirm', { pendingId: item.pendingId });
     settlePreview(accountId, entryId, ui, 'confirmed');
-    addEntry(accountId, { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message });
+    const success = { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message };
+    if (data.undoId) {
+      // Only the last confirmed transaction of a chat can be undone, for a few minutes.
+      retireLiveActions(accountId, ['undo']);
+      success.id = newEntryId();
+      state.live.set(success.id, { type: 'undo', accountId, undoId: data.undoId, previewEntryId: entryId });
+      setTimeout(() => removeLive(success.id), data.undoTtlMs ?? 10 * 60 * 1000);
+    }
+    addEntry(accountId, success);
     updateAccountName(data.account);
   } catch (error) {
     settlePreview(accountId, entryId, ui, 'failed');
@@ -513,6 +537,34 @@ async function confirmPreview(accountId, entryId, ui) {
       ? 'Não foi possível confirmar se a movimentação foi registrada. Verifique no Actual Budget antes de enviar novamente.'
       : error.message;
     handleChatError(accountId, error, text);
+  } finally {
+    setBusy(accountId, false);
+    if (isVisible(accountId)) focusComposer();
+  }
+}
+
+/** Marks a preview card as undone, in history and on screen. */
+function markUndone(accountId, previewEntryId) {
+  state.history?.update(accountId, previewEntryId, { status: 'undone' });
+  if (isVisible(accountId)) renderChat();
+}
+
+async function undoLive(accountId, successEntryId) {
+  const item = state.live.get(successEntryId);
+  if (!item || state.busy.has(accountId)) return;
+  removeLive(successEntryId);
+  setBusy(accountId, true);
+  try {
+    const data = await api('POST', '/api/chat/undo', { accountId, undoId: item.undoId });
+    markUndone(accountId, item.previewEntryId);
+    addEntry(accountId, { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message });
+  } catch (error) {
+    // Actual unreachable (or no answer): the server keeps the undo available, so the button comes back.
+    if (error.code === 'ACTUAL_ERROR' || error.code === 'NETWORK') {
+      state.live.set(successEntryId, item);
+      if (isVisible(accountId)) renderChat();
+    }
+    handleChatError(accountId, error, error.code === 'NETWORK' ? 'Não foi possível confirmar se a movimentação foi desfeita. Verifique no Actual Budget.' : error.message);
   } finally {
     setBusy(accountId, false);
     if (isVisible(accountId)) focusComposer();

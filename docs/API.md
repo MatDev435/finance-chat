@@ -88,6 +88,19 @@ Valores em centavos, exceto `command.amount`. Erros: `400 INVALID_COMMAND | VALI
 - `503 ACTUAL_ERROR`: falha antes da gravação, nada foi gravado.
 - `503 WRITE_UNCERTAIN`: a própria gravação falhou. Verifique no Actual antes de tentar de novo.
 
+A confirmação também devolve `undoId`, `undoExpiresAt` e `undoTtlMs` quando a transação criada pôde ser identificada.
+
+### `POST /api/chat/undo`
+
+`{ accountId, undoId? }`: desfaz a última transação confirmada nesta conversa. Sem `undoId`, usa a mais recente; a mensagem `desfazer` em `/api/chat/preview` faz o mesmo e responde com `kind: "undo"`.
+
+- `200 { kind: "undo", undoneId, synced, message }`: transação apagada (com `synced: false`, apagada na cópia local e enviada na próxima sincronização).
+- `409 NO_UNDO | UNDO_EXPIRED`: não há o que desfazer (outra conversa, outro usuário, já desfeita ou prazo de 10 minutos esgotado).
+- `409 UNDO_NOT_FOUND | UNDO_CHANGED`: a transação foi apagada ou alterada no Actual; nada foi feito.
+- `409 CONNECTION_CHANGED`: a conexão mudou depois do registro.
+- `503 ACTUAL_ERROR`: Actual indisponível; nada foi feito e o desfazer continua disponível.
+- `503 UNDO_UNCERTAIN`: a exclusão falhou no meio. Verifique no Actual.
+
 ### `POST /api/chat/cancel`
 
 `{ pendingId }`: `200 { message: "Movimentação cancelada." }`. Idempotente.

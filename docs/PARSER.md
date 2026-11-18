@@ -109,6 +109,23 @@ Regras:
 - Informar a data duas vezes é erro.
 - A prévia mostra a data antes da confirmação.
 
+## Desfazer
+
+Logo depois de registrar uma movimentação, você pode desfazê-la:
+
+```text
+desfazer
+desfaz o último
+desfazer o último lançamento
+```
+
+Ou use o botão **↶ Desfazer** que aparece na mensagem de sucesso. Regras:
+
+- Só vale para a **última** movimentação confirmada **naquela conversa**, por **10 minutos**, e só uma vez.
+- Só apaga se a transação continuar no Actual exatamente como foi criada (mesma conta, data e valor). Se você a alterou ou apagou no Actual, nada é desfeito.
+- Uma compra dividida é desfeita inteira.
+- O botão aparece só enquanto a página está aberta. O comando `desfazer` funciona também depois de recarregar, dentro do prazo.
+
 ## Perguntas de categoria
 
 ```text

@@ -14,6 +14,7 @@ const STATUS_BADGES = {
   confirmed: ['Registrada', 'confirmed'],
   cancelled: ['Cancelada', 'cancelled'],
   failed: ['Não registrada', 'failed'],
+  undone: ['Desfeita', 'cancelled'],
   stale: ['Não confirmada', 'cancelled'],
 };
 
@@ -81,6 +82,7 @@ function previewCard(entry, actions) {
   if (actions) {
     const row = element('div', 'message-actions');
     row.dataset.live = 'preview';
+    row.dataset.liveEntry = entry.id;
     const confirmButton = element('button', '', '✓  Aprovar');
     const cancelButton = element('button', 'secondary', '×  Cancelar');
     confirmButton.type = 'button';
@@ -153,6 +155,7 @@ export function createChatView({ conversation, typingIndicator }) {
     if (actions?.suggestions?.length) {
       const row = element('div', 'suggestion-actions');
       row.dataset.live = 'suggestions';
+      row.dataset.liveEntry = entry.id;
       for (const suggestion of actions.suggestions) {
         const button = element('button', '', `Usar “${suggestion.name}”`);
         button.type = 'button';
@@ -162,6 +165,20 @@ export function createChatView({ conversation, typingIndicator }) {
         });
         row.append(button);
       }
+      bubble.append(row);
+    }
+    if (actions?.onUndo) {
+      const row = element('div', 'undo-actions');
+      row.dataset.live = 'undo';
+      row.dataset.liveEntry = entry.id;
+      const button = element('button', '', '↶  Desfazer');
+      button.type = 'button';
+      button.setAttribute('aria-label', 'Desfazer esta movimentação');
+      button.addEventListener('click', () => {
+        button.disabled = true;
+        actions.onUndo();
+      });
+      row.append(button);
       bubble.append(row);
     }
     if (!card) {

@@ -143,3 +143,11 @@ test('"categoria" keeps priority: messages accepted before are parsed exactly as
   });
   assert.equal('splits' in parseCommand('Gastei 30 na loja categoria presentes'), false);
 });
+
+test('recognizes the undo command in a few natural forms only', () => {
+  for (const text of ['desfazer', 'Desfazer!', 'desfaz o último', 'desfazer o ultimo lançamento', 'Desfaça o último registro']) {
+    assert.deepEqual(parseMessage(text), { kind: 'undo' }, text);
+  }
+  assert.throws(() => parseMessage('desfazer 40 reais'));
+  assert.notDeepEqual(parseMessage('Gastei 10 no desfazer categoria lazer'), { kind: 'undo' });
+});

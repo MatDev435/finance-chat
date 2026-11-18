@@ -1,6 +1,6 @@
 import { contextKey } from './actual.js';
 import { getSynchronizedCategoryAvailability } from './budget-availability.js';
-import { commitTransaction, listChatAccounts, prepareTransaction } from './budget-operations.js';
+import { commitTransaction, listChatAccounts, prepareTransaction, undoTransaction } from './budget-operations.js';
 import { evaluateCategorySpending } from './category-queries.js';
 import {
   HttpError, applySecurityHeaders, clientIp, isCrossSite, isSecureRequest, parseCookies, readJson,
@@ -10,6 +10,7 @@ import { resolveDate } from './dates.js';
 import { amountToCents, parseMessage } from './parser.js';
 import { createRateLimiter } from './rate-limit.js';
 import { currentLocalDate } from './transaction-mapping.js';
+import { createUndoStore } from './undo.js';
 import { ACCOUNT_ID_PATTERN, inputError, resolveConnectionInput } from './user-store.js';
 
 export const ACCESS_COOKIE = 'fc_access';
@@ -28,8 +29,13 @@ const ERROR_STATUS = {
   ACCOUNT_UNAVAILABLE: 409,
   NO_PENDING_TRANSACTION: 409,
   PENDING_EXPIRED: 409,
+  NO_UNDO: 409,
+  UNDO_EXPIRED: 409,
+  UNDO_NOT_FOUND: 409,
+  UNDO_CHANGED: 409,
   ACTUAL_ERROR: 503,
   WRITE_UNCERTAIN: 503,
+  UNDO_UNCERTAIN: 503,
 };
 
 function moneyText(amount) {
@@ -63,6 +69,11 @@ function successText(preview, account) {
   return `Movimentação registrada com sucesso!\n\n${typeText(preview.command.type)} de ${moneyText(preview.command.amount)} para ${preview.command.description}.\nConta: ${account.name}.\n${categoryText(preview)}.${dateLine}`;
 }
 
+/** "Despesa de R$ 40,00 para mercado" */
+function summaryText(preview) {
+  return `${typeText(preview.command.type)} de ${moneyText(preview.command.amount)} para ${preview.command.description}`;
+}
+
 function unsyncedText(preview, account) {
   return `Movimentação registrada, mas a sincronização com o servidor Actual falhou.\n\n${typeText(preview.command.type)} de ${moneyText(preview.command.amount)} para ${preview.command.description} na conta ${account.name}.\nEla será enviada na próxima sincronização. Não envie de novo.`;
 }
@@ -78,7 +89,7 @@ function accountIdFrom(value) {
   return value;
 }
 
-export function createApp({ config, auth, store, actual, pending, publicDir, log = console }) {
+export function createApp({ config, auth, store, actual, pending, undo = createUndoStore(), publicDir, log = console }) {
   const limiters = {
     loginIp: createRateLimiter({ limit: 20, windowMs: 15 * MINUTE }),
     loginUser: createRateLimiter({ limit: 5, windowMs: 15 * MINUTE }),
@@ -135,6 +146,46 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
     enforce(limiters.connectionTest, `user:${ctx.user.id}`);
     limiters.connectionTest.hit(`user:${ctx.user.id}`);
     return { userId: ctx.user.id, ...resolveConnectionInput(ctx.body, existingConnection(ctx.user.id)) };
+  }
+
+  /**
+   * Deletes the last transaction confirmed in this chat (or the one of `undoId`),
+   * only while it is undoable and unchanged in Actual.
+   */
+  async function performUndo(ctx, accountId, undoId) {
+    const id = typeof undoId === 'string' ? undoId : undo.latestId(ctx.user.id, accountId);
+    const entry = undo.begin(ctx.user.id, id);
+    if (entry.accountId !== accountId) {
+      undo.abort(entry.id);
+      throw Object.assign(new Error('Não há movimentação recente para desfazer nesta conversa.'), { code: 'NO_UNDO' });
+    }
+    let result;
+    try {
+      const connection = requireConnection(ctx.user.id);
+      if (contextKey(connection) !== entry.contextKey) {
+        throw new HttpError(409, 'CONNECTION_CHANGED', 'A conexão com o Actual mudou depois do registro. Nada foi desfeito.');
+      }
+      result = await actual.run(connection, (api) => undoTransaction(api, entry));
+    } catch (error) {
+      if (error.code === 'ACTUAL_ERROR') {
+        // Actual was unreachable before deleting: nothing changed, so undo stays available.
+        undo.abort(entry.id);
+        error.message = `${error.message} Nada foi desfeito.`;
+      } else {
+        undo.finish(entry.id);
+      }
+      throw error;
+    }
+    undo.finish(entry.id);
+    return {
+      ok: true,
+      kind: 'undo',
+      undoneId: entry.id,
+      synced: result.synced,
+      message: result.synced
+        ? `Movimentação desfeita: ${entry.summary}.`
+        : `Movimentação desfeita na cópia local (${entry.summary}), mas a sincronização com o servidor Actual falhou. Ela será enviada na próxima sincronização.`,
+    };
   }
 
   const routes = {
@@ -254,6 +305,7 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
         const categoryId = optionalCategoryId(ctx.body.categoryId);
         if (typeof message === 'string' && message.length > MAX_MESSAGE_LENGTH) throw inputError(`A mensagem pode ter no máximo ${MAX_MESSAGE_LENGTH} caracteres.`, 'message');
         const intent = parseMessage(message);
+        if (intent.kind === 'undo') return sendJson(ctx.response, 200, await performUndo(ctx, accountId));
         if (categoryId && intent.command?.splits) throw inputError('A escolha de categoria não se aplica a movimentações divididas.', 'categoryId');
         const connection = requireConnection(ctx.user.id);
 
@@ -313,12 +365,30 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
           if (error.code !== 'WRITE_UNCERTAIN' && ERROR_STATUS[error.code]) error.message = `${error.message} Nada foi registrado.`;
           throw error;
         }
+        // The last confirmed transaction of the chat can be undone for a few minutes.
+        const undoable = result.transactionId
+          ? undo.put(ctx.user.id, entry.accountId, {
+            transactionId: result.transactionId,
+            date: entry.mapped.transaction.date,
+            amount: entry.mapped.transaction.amount,
+            contextKey: entry.contextKey,
+            summary: summaryText(entry.preview),
+          })
+          : null;
         return sendJson(ctx.response, 200, {
           ok: true,
           synced: result.synced,
           account: result.account,
           message: result.synced ? successText(entry.preview, result.account) : unsyncedText(entry.preview, result.account),
+          ...(undoable ? { undoId: undoable.id, undoExpiresAt: undoable.expiresAt, undoTtlMs: Math.max(0, undoable.expiresAt - Date.now()) } : {}),
         });
+      },
+    },
+
+    'POST /api/chat/undo': {
+      async handler(ctx) {
+        const accountId = accountIdFrom(ctx.body.accountId);
+        return sendJson(ctx.response, 200, await performUndo(ctx, accountId, ctx.body.undoId));
       },
     },
 
@@ -342,7 +412,7 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
     }
     const status = ERROR_STATUS[error?.code];
     if (status) {
-      if (error.code === 'ACTUAL_ERROR' || error.code === 'WRITE_UNCERTAIN') log.error(`[actual] ${error.code} ${error.reason || ''} ${error.detail || error.cause?.code || ''}`.trim());
+      if (['ACTUAL_ERROR', 'WRITE_UNCERTAIN', 'UNDO_UNCERTAIN'].includes(error.code)) log.error(`[actual] ${error.code} ${error.reason || ''} ${error.detail || error.cause?.code || ''}`.trim());
       const body = { ok: false, code: error.code, error: error.message };
       if (error.field) body.field = error.field;
       if (error.reason) body.reason = error.reason;

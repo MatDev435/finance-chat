@@ -48,6 +48,7 @@ O endereço do servidor Actual é informado pelo usuário, então o Finance Chat
 - Conta e categoria são revalidadas logo antes da gravação. Nunca há fallback para outra conta.
 - A interface só mostra "registrada" depois da confirmação do servidor.
 - Falhas são classificadas: "nada foi registrado", "gravada mas não sincronizada" e "resultado incerto, verifique no Actual".
+- Desfazer apaga somente a última transação criada pelo próprio usuário naquela conversa, por até 10 minutos, e somente se ela continuar com a mesma conta, data e valor.
 
 ## Dados locais
 
