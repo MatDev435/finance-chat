@@ -521,3 +521,31 @@ test('an unknown category returns suggestions; choosing one previews with that c
   assert.equal((await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 4 x categoria alimentação', categoryId: '../x' })).status, 400);
   await app.close();
 });
+
+test('split purchases: preview lists the parts, confirmation writes one transaction with subtransactions', async () => {
+  const app = await startApp();
+  const browser = await signedIn(app, 'ana', ANA_CONNECTION);
+  const budget = app.servers['https://ana.example'].files['sync-ana-0001'];
+  const preview = await browser.post('/api/chat/preview', { accountId: 'acc-inter', message: 'Gastei 100 no mercado categorias 70 alimentação, 30 salário' });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.preview.category, null);
+  assert.deepEqual(preview.body.preview.splits.map((s) => [s.category.name, s.amount]), [['Alimentação', 70], ['Salário', 30]]);
+  assert.match(preview.body.preview.text, /Categorias: Alimentação \(R\$\s?70,00\), Salário \(R\$\s?30,00\)/);
+  const confirm = await browser.post('/api/chat/confirm', { pendingId: preview.body.pendingId });
+  assert.equal(confirm.status, 200);
+  assert.match(confirm.body.message, /Categorias: Alimentação/);
+  assert.equal(budget.transactions.length, 1);
+  assert.equal(budget.transactions[0].amount, -10000);
+  assert.equal(budget.transactions[0].subtransactions.length, 2);
+
+  const withChoice = await browser.post('/api/chat/preview', { accountId: 'acc-inter', message: 'Gastei 100 no mercado categorias 70 alimentação, 30 salário', categoryId: 'cat-food' });
+  assert.equal(withChoice.status, 400);
+  const unknown = await browser.post('/api/chat/preview', { accountId: 'acc-inter', message: 'Gastei 100 no mercado categorias 70 alimetação, 30 salário' });
+  assert.equal(unknown.status, 400);
+  assert.match(unknown.body.error, /Você quis dizer: Alimentação/);
+  assert.equal(unknown.body.suggestions, undefined);
+  const wrongSum = await browser.post('/api/chat/preview', { accountId: 'acc-inter', message: 'Gastei 100 no mercado categorias 70 alimentação, 20 salário' });
+  assert.equal(wrongSum.status, 400);
+  assert.equal(budget.transactions.length, 1);
+  await app.close();
+});

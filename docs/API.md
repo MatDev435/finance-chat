@@ -72,7 +72,7 @@ Sincroniza e devolve as contas abertas e dentro do orçamento: `{ accounts: [{ i
 
 `categoryId` é opcional: é enviado quando o usuário escolhe uma das sugestões de categoria. Ele substitui a categoria escrita na mensagem, depois de validado contra o orçamento. Categoria desconhecida devolve `400` (`VALIDATION_ERROR` para transações, `CATEGORY_NOT_FOUND` para perguntas de saldo) com `suggestions: [{ id, name }]` (até 3).
 
-- Transação: `{ kind: "transaction", pendingId, expiresAt, preview: { command, account, category, transaction, text } }`.
+- Transação: `{ kind: "transaction", pendingId, expiresAt, preview: { command, account, category, transaction, text } }`. Em compras divididas, `category` é `null`, `preview.splits` traz `[{ amount, category: { id, name } }]` e `transaction.subtransactions` traz as partes. `categoryId` não pode ser usado com divisões (`400`).
 - `Quanto tenho em X?`: `{ kind: "category-available", message, category, month, available }`.
 - `Posso gastar R$ N com X?`: `{ kind: "category-can-spend", message, category, month, available, requested, remaining, canSpend }`.
 

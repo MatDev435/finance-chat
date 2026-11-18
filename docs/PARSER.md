@@ -47,6 +47,25 @@ Resultado relevante:
 
 Sem o marcador, `notes` não é adicionado. `description` continua sendo o beneficiário e vira `payee_name`; `notes` vira o campo `notes` do Actual.
 
+## Compra dividida em várias categorias
+
+Troque `categoria` por `categorias` e liste as partes, cada uma com valor e categoria:
+
+```text
+Gastei 100 no mercado: categorias 70 alimentação, 30 limpeza
+Gastei 100 no mercado categorias alimentação 70 e limpeza R$ 30
+Gastei 100,50 no mercado categorias 70,50 alimentação; 30 limpeza notas compra do mês
+Recebi 1.000 da empresa categorias 800 salário, 200 de bônus
+```
+
+- O valor pode vir antes ou depois da categoria (`70 alimentação` ou `alimentação 70`), com `R$` e `reais` opcionais.
+- Separe as partes com `,`, `;` ou `e` ao lado de um número. Vírgula decimal (`70,50`) e categorias com "e" no nome (`Casa e jardim 40`) continuam funcionando.
+- De 2 a 10 partes. **A soma das partes precisa ser igual ao total**, senão a mensagem é recusada com a diferença.
+- Data e notas funcionam como em uma categoria só: a data no fim da lista, as notas depois de `notas`.
+- No Actual, vira **uma** transação dividida (split), com uma subtransação por parte.
+- `categoria` (singular) tem prioridade. Se a mensagem tiver as duas palavras, vale a categoria única, como antes.
+- Formato `10 reais e 94 centavos` não é aceito dentro das partes. Use `10,94`.
+
 ## Categorias
 
 A categoria é procurada pelo nome, nesta ordem:

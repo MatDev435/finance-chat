@@ -105,3 +105,41 @@ test('messages without a date expression are interpreted exactly as before', () 
 test('rejects a date given twice', () => {
   assert.throws(() => parseCommand('Ontem gastei 40 no mercado categoria alimentação dia 12'), /data só uma vez/);
 });
+
+test('splits a purchase across categories with "categorias"', () => {
+  assert.deepEqual(parseCommand('Gastei 100 no mercado: categorias 70 alimentação, 30 limpeza'), {
+    type: 'expense', amount: 100, description: 'mercado',
+    splits: [{ amount: 70, category: 'Alimentação' }, { amount: 30, category: 'Limpeza' }],
+  });
+  const valueLast = parseCommand('Gastei 100 no mercado categorias alimentação 70 e limpeza R$ 30 ontem notas compra do mês');
+  assert.deepEqual(valueLast.splits, [{ amount: 70, category: 'Alimentação' }, { amount: 30, category: 'Limpeza' }]);
+  assert.deepEqual(valueLast.when, { daysAgo: 1 });
+  assert.equal(valueLast.notes, 'Compra do mês');
+});
+
+test('split parts keep decimal commas and category names containing "e"', () => {
+  assert.deepEqual(parseCommand('Gastei 100,50 no mercado categorias 70,50 alimentação, 30 limpeza').splits.map((s) => s.amount), [70.5, 30]);
+  assert.deepEqual(parseCommand('Gastei 100 no mercado categorias Casa e jardim 40 e alimentação 60').splits, [
+    { amount: 40, category: 'Casa e jardim' }, { amount: 60, category: 'Alimentação' },
+  ]);
+  assert.deepEqual(parseCommand('Recebi 1.000 da empresa categorias 800 salário; 200 de bônus').splits, [
+    { amount: 800, category: 'Salário' }, { amount: 200, category: 'Bônus' },
+  ]);
+  assert.deepEqual(parseCommand('Gastei 100 no mercado categorias 70 reais de alimentação e 30 reais em limpeza').splits.map((s) => s.category), ['Alimentação', 'Limpeza']);
+});
+
+test('split parts must add up to the total and be well formed', () => {
+  assert.throws(() => parseCommand('Gastei 100 no mercado categorias 70 alimentação, 20 limpeza'), /soma das partes \(R\$\s?90,00\) é diferente do total \(R\$\s?100,00\)/);
+  assert.throws(() => parseCommand('Gastei 100 no mercado categorias 100 alimentação'), /pelo menos duas partes/);
+  assert.throws(() => parseCommand('Gastei 100 no mercado categorias alimentação, limpeza'), /Não entendi a parte/);
+  assert.throws(() => parseCommand('Gastei 100 no mercado categorias'), /partes depois de “categorias”/);
+  const eleven = Array.from({ length: 11 }, (_, i) => `1 c${i}`).join(', ');
+  assert.throws(() => parseCommand(`Gastei 11 no mercado categorias ${eleven}`), /no máximo 10 partes/);
+});
+
+test('"categoria" keeps priority: messages accepted before are parsed exactly as before', () => {
+  assert.deepEqual(parseCommand('Gastei 30 na loja de categorias categoria presentes'), {
+    type: 'expense', amount: 30, description: 'loja de categorias', category: 'Presentes',
+  });
+  assert.equal('splits' in parseCommand('Gastei 30 na loja categoria presentes'), false);
+});

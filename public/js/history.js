@@ -33,6 +33,7 @@ function sanitizeData(kind, data) {
       account: text(data.account, 200),
       date: text(data.date, 10),
       ...(data.notes ? { notes: text(data.notes, 500) } : {}),
+      ...(Array.isArray(data.parts) ? { parts: data.parts.slice(0, 10).map((part) => ({ category: text(part?.category, 200), amount: number(part?.amount) })) } : {}),
     };
   }
   if (kind === 'spending') {

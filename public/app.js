@@ -439,7 +439,8 @@ async function sendMessage(accountId, message, { categoryId, echo = message } = 
         id: entryId, role: 'assistant', kind: 'preview', text: PREVIEW_TEXT, status: 'pending',
         data: {
           type: preview.command.type, amount: preview.command.amount, description: preview.command.description,
-          category: preview.category.name, account: preview.account.name, date: preview.transaction.date, notes: preview.command.notes,
+          category: preview.category?.name ?? '', account: preview.account.name, date: preview.transaction.date, notes: preview.command.notes,
+          parts: preview.splits?.map((split) => ({ category: split.category.name, amount: split.amount })),
         },
       });
       updateAccountName(preview.account);

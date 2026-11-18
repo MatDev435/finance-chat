@@ -33,6 +33,21 @@ export function resolveCategory(categories, requested, categoryId) {
  */
 export function validateCommand(command, { accounts, categories, accountId, categoryId }) {
   const account = requireChatAccount(accounts, accountId);
+
+  if (command.splits) {
+    const splits = command.splits.map((split) => {
+      try {
+        const category = resolveCategory(categories, split.category);
+        return { amount: split.amount, category: { id: category.id, name: category.name } };
+      } catch (error) {
+        // Suggestions stay in the message; the one-click choice applies only to single-category messages.
+        delete error.suggestions;
+        throw error;
+      }
+    });
+    return { valid: true, command, account, category: null, splits };
+  }
+
   const category = resolveCategory(categories, command.category, categoryId);
 
   return {

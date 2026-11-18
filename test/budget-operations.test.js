@@ -112,3 +112,17 @@ test('a failing write is reported as uncertain', async () => {
   api.hooks.beforeAdd = () => { throw new Error('disk full'); };
   await assert.rejects(() => commitTransaction(api, mapped), { code: 'WRITE_UNCERTAIN', message: /Verifique no Actual/ });
 });
+
+test('a split purchase is written once with its parts; a part whose category vanished blocks the write', async () => {
+  const { api, budget } = await openWorld(ACCOUNTS());
+  const split = parseCommand('Gastei 100 no mercado categorias 70 alimentação, 30 transporte');
+  const { mapped } = await prepareTransaction(api, { accountId: 'acc-inter', command: split, date: '2026-11-18' });
+  await commitTransaction(api, mapped);
+  assert.equal(budget.transactions.length, 1);
+  assert.deepEqual(budget.transactions[0].subtransactions, [{ amount: -7000, category: 'cat-food' }, { amount: -3000, category: 'cat-transport' }]);
+
+  const again = await prepareTransaction(api, { accountId: 'acc-inter', command: split, date: '2026-11-18' });
+  budget.categories = budget.categories.filter((category) => category.id !== 'cat-transport');
+  await assert.rejects(() => commitTransaction(api, again.mapped), { code: 'VALIDATION_ERROR' });
+  assert.equal(budget.transactions.length, 1);
+});

@@ -1,21 +1,29 @@
 import { amountToCents } from './parser.js';
 
 export function toActualImport(validation, date) {
-  const { command, account, category } = validation;
-  const signedAmount = amountToCents(command.amount) * (command.type === 'expense' ? -1 : 1);
+  const { command, account, category, splits } = validation;
+  const sign = command.type === 'expense' ? -1 : 1;
 
   const transaction = {
     accountId: account.id,
     transaction: {
       date,
-      amount: signedAmount,
+      amount: amountToCents(command.amount) * sign,
       payee_name: command.description,
-      category: category.id,
+      // A split transaction has no category of its own: each part carries one.
+      ...(splits
+        ? { subtransactions: splits.map((split) => ({ amount: amountToCents(split.amount) * sign, category: split.category.id })) }
+        : { category: category.id }),
       ...(command.notes ? { notes: command.notes } : {}),
     },
   };
 
   return transaction;
+}
+
+/** Category ids used by a mapped transaction (one, or one per split part). */
+export function transactionCategoryIds(transaction) {
+  return transaction.subtransactions ? transaction.subtransactions.map((part) => part.category) : [transaction.category];
 }
 
 export function currentLocalDate() {

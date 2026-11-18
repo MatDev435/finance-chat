@@ -68,7 +68,11 @@ function previewCard(entry, actions) {
   const badge = element('span', 'pending-badge');
   card.append(cardHeading(icons[data.type] || icons.expense, data.type === 'income' ? 'RECEITA' : 'DESPESA', formatCurrency(data.amount), badge));
   const details = element('div', 'transaction-details');
-  details.append(detailRow('category', 'Categoria', data.category), detailRow('payee', 'Beneficiário', data.description), detailRow('account', 'Conta', data.account), detailRow('date', 'Data', formatDate(data.date)));
+  // A split purchase shows one row per part: category and its value.
+  const categoryRows = data.parts?.length
+    ? data.parts.map((part) => detailRow('category', part.category, formatCurrency(part.amount)))
+    : [detailRow('category', 'Categoria', data.category)];
+  details.append(...categoryRows, detailRow('payee', 'Beneficiário', data.description), detailRow('account', 'Conta', data.account), detailRow('date', 'Data', formatDate(data.date)));
   if (data.notes) details.append(detailRow('payee', 'Nota', data.notes));
   card.append(details);
   const status = entry.status === 'pending' && !actions ? 'stale' : entry.status;

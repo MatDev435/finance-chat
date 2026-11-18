@@ -45,16 +45,22 @@ function dateText(date) {
   return `${day}/${month}/${year}`;
 }
 
+/** "Categoria: Alimentação" or, for a split, "Categorias: Alimentação (R$ 70,00), Limpeza (R$ 30,00)". */
+function categoryText({ category, splits }) {
+  if (splits) return `Categorias: ${splits.map((split) => `${split.category.name} (${moneyText(split.amount)})`).join(', ')}`;
+  return `Categoria: ${category.name}`;
+}
+
 function previewText(command, validation, date) {
   const noteLine = command.notes ? `\nNota: ${command.notes}` : '';
-  return `Vou registrar esta movimentação:\n\nTipo: ${typeText(command.type)}\nValor: ${moneyText(command.amount)}\nBeneficiário: ${command.description}\nConta: ${validation.account.name}\nCategoria: ${validation.category.name}\nData: ${dateText(date)}${noteLine}\n\nDeseja confirmar?`;
+  return `Vou registrar esta movimentação:\n\nTipo: ${typeText(command.type)}\nValor: ${moneyText(command.amount)}\nBeneficiário: ${command.description}\nConta: ${validation.account.name}\n${categoryText(validation)}\nData: ${dateText(date)}${noteLine}\n\nDeseja confirmar?`;
 }
 
 function successText(preview, account) {
   // The date is mentioned only when it is not today, keeping the usual message unchanged.
   const date = preview.transaction.date;
   const dateLine = date !== currentLocalDate() ? `\nData: ${dateText(date)}.` : '';
-  return `Movimentação registrada com sucesso!\n\n${typeText(preview.command.type)} de ${moneyText(preview.command.amount)} para ${preview.command.description}.\nConta: ${account.name}.\nCategoria: ${preview.category.name}.${dateLine}`;
+  return `Movimentação registrada com sucesso!\n\n${typeText(preview.command.type)} de ${moneyText(preview.command.amount)} para ${preview.command.description}.\nConta: ${account.name}.\n${categoryText(preview)}.${dateLine}`;
 }
 
 function unsyncedText(preview, account) {
@@ -248,6 +254,7 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
         const categoryId = optionalCategoryId(ctx.body.categoryId);
         if (typeof message === 'string' && message.length > MAX_MESSAGE_LENGTH) throw inputError(`A mensagem pode ter no máximo ${MAX_MESSAGE_LENGTH} caracteres.`, 'message');
         const intent = parseMessage(message);
+        if (categoryId && intent.command?.splits) throw inputError('A escolha de categoria não se aplica a movimentações divididas.', 'categoryId');
         const connection = requireConnection(ctx.user.id);
 
         if (intent.kind === 'category-available' || intent.kind === 'category-can-spend') {
@@ -282,6 +289,7 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
           command: intent.command,
           account: validation.account,
           category: validation.category,
+          ...(validation.splits ? { splits: validation.splits } : {}),
           transaction: mapped.transaction,
           text: previewText(intent.command, validation, date),
         };

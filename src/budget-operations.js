@@ -1,5 +1,5 @@
 import { chatAccounts, requireChatAccount } from './accounts.js';
-import { toActualImport } from './transaction-mapping.js';
+import { toActualImport, transactionCategoryIds } from './transaction-mapping.js';
 import { validateCommand, validationError } from './validation.js';
 
 /**
@@ -32,7 +32,8 @@ export async function commitTransaction(api, mapped) {
   await api.sync();
   const [accounts, categories] = await Promise.all([api.getAccounts(), api.getCategories()]);
   const account = requireChatAccount(accounts, mapped.accountId);
-  if (!categories.some((category) => category.id === mapped.transaction.category)) {
+  const known = new Set(categories.map((category) => category.id));
+  if (!transactionCategoryIds(mapped.transaction).every((id) => known.has(id))) {
     throw validationError('A categoria desta movimentação não existe mais no Actual Budget. Envie a mensagem novamente.');
   }
 
