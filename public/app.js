@@ -617,4 +617,11 @@ async function boot() {
   }
 }
 
+/* ---------- Installable app (PWA) ---------- */
+
+// Secure contexts only (HTTPS or localhost). The worker caches the interface files, never API data.
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+}
+
 boot();

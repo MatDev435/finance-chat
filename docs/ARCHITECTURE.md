@@ -82,6 +82,8 @@ HTML, CSS e JavaScript (módulos ES nativos), sem framework e sem build.
 | `js/history.js` | Histórico visual em `localStorage` (10 mensagens por conversa, por usuário e ID da conta). |
 | `js/navigation.js` | Regras puras de navegação (conta inicial, seleção, painel visível). |
 | `js/setup.js`, `js/settings.js` | Formulário de conexão e painel de configurações. |
+| `manifest.webmanifest`, `icons/` | Manifesto do app instalável e ícones (192/512, maskable, apple-touch-icon). |
+| `sw.js` | Service worker: rede primeiro e cache só dos arquivos da interface; ignora `/api/*` e `/health`. |
 
 ## Testes (`test/`)
 

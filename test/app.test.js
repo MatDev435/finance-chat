@@ -620,3 +620,33 @@ test('undo stays available when Actual is unreachable, and split purchases are u
   assert.equal(budget.transactions.length, 0);
   await app.close();
 });
+
+test('PWA: manifest, icons and service worker are served; the worker never handles the API', async () => {
+  const app = await startApp();
+  const client = app.client();
+  const manifest = await client.get('/manifest.webmanifest');
+  assert.equal(manifest.status, 200);
+  assert.match(manifest.headers.get('content-type'), /application\/manifest\+json/);
+  assert.equal(manifest.body.display, 'standalone');
+  assert.equal(manifest.body.start_url, '/');
+  const sizes = manifest.body.icons.map((icon) => `${icon.sizes}:${icon.purpose}`);
+  assert.ok(sizes.includes('192x192:any') && sizes.includes('512x512:any') && sizes.includes('512x512:maskable'));
+  for (const src of [...manifest.body.icons.map((icon) => icon.src), '/icons/apple-touch-icon.png']) {
+    const icon = await fetch(app.base + src);
+    assert.equal(icon.status, 200, src);
+    assert.equal(icon.headers.get('content-type'), 'image/png');
+    assert.deepEqual([...new Uint8Array(await icon.arrayBuffer()).slice(1, 4)], [0x50, 0x4e, 0x47], `${src} is a PNG`);
+  }
+
+  const worker = await client.get('/sw.js');
+  assert.equal(worker.status, 200);
+  assert.match(worker.headers.get('content-type'), /javascript/);
+  assert.match(worker.text, /url\.pathname\.startsWith\('\/api\/'\)/, 'API requests bypass the worker');
+  const shell = JSON.parse(worker.text.match(/const SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"').replace(/,\s*\]/, ']'));
+  for (const path of shell) assert.equal((await fetch(app.base + path)).status, 200, `cached shell file ${path} exists`);
+
+  const page = await client.get('/');
+  assert.match(page.text, /<link rel="manifest" href="\/manifest.webmanifest">/);
+  assert.match(page.text, /apple-touch-icon/);
+  await app.close();
+});

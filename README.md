@@ -22,6 +22,8 @@ A interpretação é feita por um **parser determinístico** (regras fixas, sem 
 - **Conta padrão:** a conversa aberta automaticamente ao entrar.
 - **Histórico visual** das últimas 10 mensagens de cada conversa, guardado só no navegador (`localStorage`).
 - **Configuração guiada** da conexão com o Actual, com tutorial e teste de conexão.
+- **Datas no texto** (`ontem`, `dia 12`, `12/11`), **compras divididas** em várias categorias, **sugestão de categoria** para erros de digitação e **desfazer** o último lançamento. Tudo por regras fixas, sem IA.
+- **App instalável (PWA)** no celular e no computador: ícone na tela inicial, abre em tela cheia, sem loja e sem rastreamento.
 
 ## Requisitos
 
@@ -101,6 +103,16 @@ Cada conta **aberta** e **dentro do orçamento** do Actual vira uma conversa. Tu
 ## Conta padrão
 
 Em **Configurações → Conta padrão**, escolha a conversa que abre automaticamente ao entrar. A preferência usa o ID da conta: sobrevive a renomeações, e se a conta deixar de existir o Finance Chat avisa e mostra a lista, em vez de abrir outra conta.
+
+## Instalar como app
+
+Com o Finance Chat servido por **HTTPS** (ou em `localhost`):
+
+- **Android (Chrome):** menu ⋮ → *Instalar app* (ou *Adicionar à tela inicial*).
+- **iPhone (Safari):** botão Compartilhar → *Adicionar à Tela de Início*.
+- **Computador (Chrome/Edge):** ícone de instalar na barra de endereços.
+
+O service worker guarda só os arquivos da interface, para abrir rápido e mostrar uma mensagem clara sem conexão. Respostas da API (contas, transações, sessão) nunca são guardadas. Não há notificações push, sincronização em segundo plano ou analytics.
 
 ## Comandos
 
