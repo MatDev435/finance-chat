@@ -76,3 +76,32 @@ for (const input of [
 ]) {
   test(`rejects invalid command: ${input}`, () => assert.throws(() => parseCommand(input)));
 }
+
+test('a date before the command or at the end of the category is recognized', () => {
+  assert.deepEqual(parseCommand('Ontem gastei 40 reais no mercado categoria alimentação'), {
+    type: 'expense', amount: 40, description: 'mercado', category: 'Alimentação', when: { daysAgo: 1 },
+  });
+  assert.deepEqual(parseCommand('Gastei 40 no mercado categoria alimentação, dia 12').when, { day: 12, month: null, year: null });
+  assert.deepEqual(parseCommand('No dia 3/11/2026, recebi 100 da empresa categoria salário').when, { day: 3, month: 11, year: 2026 });
+  assert.deepEqual(parseCommand('anteontem comprei 9,90 na padaria categoria alimentação').when, { daysAgo: 2 });
+});
+
+test('a date before notes is a date; inside notes it is just text', () => {
+  const command = parseCommand('Gastei 10,94 no Uber, categoria transporte, 12/11, notas voltando de ontem');
+  assert.equal(command.category, 'Transporte');
+  assert.deepEqual(command.when, { day: 12, month: 11, year: null });
+  assert.equal(command.notes, 'Voltando de ontem');
+  const notesOnly = parseCommand('Gastei 10 no Uber categoria transporte notas jantar de ontem');
+  assert.equal(notesOnly.when, undefined);
+});
+
+test('messages without a date expression are interpreted exactly as before', () => {
+  assert.equal('when' in parseCommand('Gastei 40 no mercado categoria alimentação'), false);
+  assert.equal(parseCommand('Gastei 40 no mercado categoria Hoje').category, 'Hoje', 'a category alone is never taken as a date');
+  assert.equal(parseCommand('Gastei 40 na loja categoria dia das mães').category, 'Dia das mães');
+  assert.equal(parseCommand('Gastei 40 no posto categoria transporte').description, 'posto');
+});
+
+test('rejects a date given twice', () => {
+  assert.throws(() => parseCommand('Ontem gastei 40 no mercado categoria alimentação dia 12'), /data só uma vez/);
+});

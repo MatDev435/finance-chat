@@ -14,6 +14,8 @@ import { openDatabase } from '../src/db.js';
 import { createPendingStore } from '../src/pending.js';
 import { createSecretBox } from '../src/secrets.js';
 import { createUserStore } from '../src/user-store.js';
+import { resolveDate } from '../src/dates.js';
+import { currentLocalDate } from '../src/transaction-mapping.js';
 import { createBudget, createFakeActual } from './support/fake-actual.js';
 import { createClient } from './support/http-client.js';
 
@@ -466,5 +468,29 @@ test('oversized and malformed bodies are rejected', async () => {
   assert.equal((await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'x'.repeat(20_000) })).status, 413);
   assert.equal((await browser.post('/api/chat/preview', '{not json')).status, 400);
   assert.equal((await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'x'.repeat(501) })).status, 400);
+  await app.close();
+});
+
+test('a date in the message sets the transaction date; future dates are refused', async () => {
+  const app = await startApp();
+  const browser = await signedIn(app, 'ana', ANA_CONNECTION);
+  const budget = app.servers['https://ana.example'].files['sync-ana-0001'];
+  const yesterday = resolveDate({ daysAgo: 1 }, currentLocalDate());
+  const preview = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Ontem gastei 40 no mercado categoria alimentação' });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.preview.transaction.date, yesterday);
+  assert.match(preview.body.preview.text, /Data: \d{2}\/\d{2}\/\d{4}/);
+  const confirm = await browser.post('/api/chat/confirm', { pendingId: preview.body.pendingId });
+  assert.match(confirm.body.message, /Data: /, 'success text mentions a date other than today');
+  assert.equal(budget.transactions[0].date, yesterday);
+
+  const today = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 5 na padaria categoria alimentação' });
+  const todayConfirm = await browser.post('/api/chat/confirm', { pendingId: today.body.pendingId });
+  assert.doesNotMatch(todayConfirm.body.message, /Data: /, 'usual message unchanged for today');
+
+  const future = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 5 na padaria categoria alimentação 01/01/2999' });
+  assert.equal(future.status, 400);
+  assert.match(future.body.error, /futuro/);
+  assert.equal(budget.transactions.length, 2);
   await app.close();
 });

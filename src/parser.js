@@ -1,3 +1,5 @@
+import { takeLeadingDate, takeTrailingDate } from './dates.js';
+
 const COMMANDS = new Map([
   ['gastei', 'expense'],
   ['comprei', 'expense'],
@@ -79,8 +81,16 @@ function parseCanSpendQuestion(text) {
 }
 
 export function parseCommand(input) {
-  const text = normalizeText(input);
+  let text = normalizeText(input);
   if (!text) fail('Digite uma mensagem financeira.');
+
+  // Optional date before the command: "Ontem gastei...", "Dia 12, comprei...".
+  let when;
+  const leading = takeLeadingDate(text);
+  if (leading && COMMANDS.has(leading.rest.split(' ')[0].toLocaleLowerCase('pt-BR'))) {
+    when = leading.when;
+    text = leading.rest;
+  }
 
   const words = text.split(' ');
   const operation = COMMANDS.get(words[0].toLocaleLowerCase('pt-BR'));
@@ -100,10 +110,17 @@ export function parseCommand(input) {
   const description = match[3].trim().replace(/^(?:para\s+(?:a|o)|no|na|para|pra|pro|da|do|em|de)\s+/i, '').replace(/,+$/, '').trim();
   if (!description) fail('Informe uma descrição ou estabelecimento.');
 
-  const category = words.slice(categoryIndex + 1).join(' ').trim();
   const categoryWords = words.slice(categoryIndex + 1);
   const noteIndex = categoryWords.findIndex((word, index) => index > 0 && /^notas?:?$/i.test(word));
-  const categoryText = (noteIndex === -1 ? categoryWords : categoryWords.slice(0, noteIndex)).join(' ').replace(/[\s,]+$/, '').trim();
+  let categoryText = (noteIndex === -1 ? categoryWords : categoryWords.slice(0, noteIndex)).join(' ').replace(/[\s,]+$/, '').trim();
+
+  // Optional date at the end of the category: "categoria alimentação ontem", "categoria alimentação, dia 12".
+  const trailing = takeTrailingDate(categoryText);
+  if (trailing?.rest) {
+    if (when) fail('Informe a data só uma vez.');
+    when = trailing.when;
+    categoryText = trailing.rest;
+  }
   if (!categoryText) fail('Informe uma categoria depois de “categoria”.');
 
   let notes;
@@ -120,6 +137,7 @@ export function parseCommand(input) {
     category: categoryText.charAt(0).toLocaleUpperCase('pt-BR') + categoryText.slice(1),
   };
   if (notes) command.notes = notes;
+  if (when) command.when = when;
   return command;
 }
 

@@ -6,6 +6,7 @@ import {
   HttpError, applySecurityHeaders, clientIp, isCrossSite, isSecureRequest, parseCookies, readJson,
   sendJson, serializeCookie, serveStatic,
 } from './http.js';
+import { resolveDate } from './dates.js';
 import { amountToCents, parseMessage } from './parser.js';
 import { createRateLimiter } from './rate-limit.js';
 import { currentLocalDate } from './transaction-mapping.js';
@@ -39,13 +40,21 @@ function typeText(type) {
   return type === 'expense' ? 'Despesa' : 'Receita';
 }
 
-function previewText(command, validation) {
+function dateText(date) {
+  const [year, month, day] = date.split('-');
+  return `${day}/${month}/${year}`;
+}
+
+function previewText(command, validation, date) {
   const noteLine = command.notes ? `\nNota: ${command.notes}` : '';
-  return `Vou registrar esta movimentação:\n\nTipo: ${typeText(command.type)}\nValor: ${moneyText(command.amount)}\nBeneficiário: ${command.description}\nConta: ${validation.account.name}\nCategoria: ${validation.category.name}${noteLine}\n\nDeseja confirmar?`;
+  return `Vou registrar esta movimentação:\n\nTipo: ${typeText(command.type)}\nValor: ${moneyText(command.amount)}\nBeneficiário: ${command.description}\nConta: ${validation.account.name}\nCategoria: ${validation.category.name}\nData: ${dateText(date)}${noteLine}\n\nDeseja confirmar?`;
 }
 
 function successText(preview, account) {
-  return `Movimentação registrada com sucesso!\n\n${typeText(preview.command.type)} de ${moneyText(preview.command.amount)} para ${preview.command.description}.\nConta: ${account.name}.\nCategoria: ${preview.category.name}.`;
+  // The date is mentioned only when it is not today, keeping the usual message unchanged.
+  const date = preview.transaction.date;
+  const dateLine = date !== currentLocalDate() ? `\nData: ${dateText(date)}.` : '';
+  return `Movimentação registrada com sucesso!\n\n${typeText(preview.command.type)} de ${moneyText(preview.command.amount)} para ${preview.command.description}.\nConta: ${account.name}.\nCategoria: ${preview.category.name}.${dateLine}`;
 }
 
 function unsyncedText(preview, account) {
@@ -257,7 +266,7 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
           });
         }
 
-        const date = currentLocalDate();
+        const date = resolveDate(intent.command.when, currentLocalDate());
         const { validation, mapped, key } = await actual.run(connection, async (api, openKey) => ({
           ...(await prepareTransaction(api, { accountId, command: intent.command, date })),
           key: openKey,
@@ -267,7 +276,7 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
           account: validation.account,
           category: validation.category,
           transaction: mapped.transaction,
-          text: previewText(intent.command, validation),
+          text: previewText(intent.command, validation, date),
         };
         const { id, expiresAt } = pending.put(ctx.user.id, accountId, { mapped, preview, contextKey: key });
         return sendJson(ctx.response, 200, { ok: true, kind: 'transaction', pendingId: id, expiresAt, preview });
