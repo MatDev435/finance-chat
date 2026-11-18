@@ -48,6 +48,13 @@ O endereço do servidor Actual é informado pelo usuário, então o Finance Chat
 - Conta e categoria são revalidadas logo antes da gravação. Nunca há fallback para outra conta.
 - A interface só mostra "registrada" depois da confirmação do servidor.
 - Falhas são classificadas: "nada foi registrado", "gravada mas não sincronizada" e "resultado incerto, verifique no Actual".
+- Desfazer apaga somente a última transação criada pelo próprio usuário naquela conversa, por até 10 minutos, e somente se ela continuar com a mesma conta, data e valor.
+
+## App instalável (service worker)
+
+- O service worker só armazena os arquivos estáticos da interface. Requisições para `/api/*` e `/health` passam direto para o servidor e nunca são guardadas, então contas, transações e tokens não ficam no cache.
+- Estratégia "rede primeiro": online, sempre usa a versão mais nova dos arquivos; o cache é só fallback offline.
+- Sem push, sincronização em segundo plano, analytics ou chamadas a terceiros.
 
 ## Dados locais
 

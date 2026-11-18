@@ -12,6 +12,7 @@ export class ApiError extends Error {
     this.code = body?.code || (status === 0 ? 'NETWORK' : 'HTTP_ERROR');
     this.field = body?.field;
     this.reason = body?.reason;
+    this.suggestions = Array.isArray(body?.suggestions) ? body.suggestions : [];
   }
 }
 

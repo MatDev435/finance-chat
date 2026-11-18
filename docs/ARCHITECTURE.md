@@ -34,6 +34,7 @@ O mesmo processo serve o frontend estático (`public/`) e a API (`/api/*`) na me
 | `validation.js` | Valida conta (por ID) e categoria (por nome) contra o orçamento. |
 | `transaction-mapping.js` | Converte o comando para o formato do Actual (centavos, `payee_name`, `notes`). |
 | `budget-availability.js`, `category-queries.js` | Consultas de saldo por categoria. |
+| `undo.js` | Última transação confirmada de cada conversa, desfazível por 10 minutos, de uso único (em memória). |
 | `pending.js` | Prévias aguardando confirmação: em memória, uma por usuário e conta, com ID de uso único e expiração. |
 | `backup.js` | Backup online do SQLite com rotação. |
 | `fetch-timeout.js` | Prazo de 60 s para todo `fetch`. |
@@ -65,6 +66,7 @@ Cada troca de contexto faz login e sincronização no servidor Actual do usuári
 2. `POST /api/chat/confirm` com `{ pendingId }`: a prévia é **removida antes** da gravação (não há duplicata em confirmações repetidas), conta e categoria são revalidadas com dados recém-sincronizados, a transação é gravada com `addTransactions()` e o orçamento é sincronizado.
 3. Se a sincronização depois da gravação falhar, a resposta informa que a transação ficou na cópia local e será enviada na próxima sincronização. Não há retry automático.
 4. `POST /api/chat/cancel` descarta a prévia.
+5. Como `addTransactions()` não devolve o ID criado, a confirmação lista as transações da conta naquela data antes e depois da gravação, dentro da mesma operação exclusiva e sem sincronizar entre as duas leituras. A transação nova é a diferença. Esse ID permite **desfazer** (`POST /api/chat/undo`), que só apaga a transação se ela continuar na mesma conta, data e valor.
 
 ## Frontend (`public/`)
 
@@ -80,6 +82,8 @@ HTML, CSS e JavaScript (módulos ES nativos), sem framework e sem build.
 | `js/history.js` | Histórico visual em `localStorage` (10 mensagens por conversa, por usuário e ID da conta). |
 | `js/navigation.js` | Regras puras de navegação (conta inicial, seleção, painel visível). |
 | `js/setup.js`, `js/settings.js` | Formulário de conexão e painel de configurações. |
+| `manifest.webmanifest`, `icons/` | Manifesto do app instalável e ícones (192/512, maskable, apple-touch-icon). |
+| `sw.js` | Service worker: rede primeiro e cache só dos arquivos da interface; ignora `/api/*` e `/health`. |
 
 ## Testes (`test/`)
 

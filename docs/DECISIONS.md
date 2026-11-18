@@ -32,6 +32,10 @@ A API oficial mantém um servidor e um orçamento abertos por processo. Um proce
 
 `importTransactions` evita duplicatas por `imported_id`, mas faz **reconciliação**: pode associar ou atualizar transações existentes parecidas. Como o Finance Chat não deve alterar transações existentes, continua usando `addTransactions` e evita duplicatas no próprio fluxo (prévia com ID de uso único, removida antes da gravação, sem retry automático).
 
+## Desfazer sem `imported_id`
+
+O ID da transação criada é descoberto pela diferença entre duas leituras da conta (antes e depois de `addTransactions`), dentro da fila exclusiva. Não usamos `imported_id`, que o Actual reserva para importação bancária e reconciliação. O desfazer vale só para a última transação de cada conversa, por 10 minutos, e só apaga se conta, data e valor continuarem iguais. Assim o Finance Chat nunca apaga algo que o usuário alterou no Actual.
+
 ## Sessões com access e refresh token em cookies
 
 Access token curto (HMAC) e refresh token opaco, rotativo e guardado como hash. Ficam em cookies `HttpOnly`/`SameSite=Strict`, nunca em `localStorage`. O access token é conferido contra a sessão no banco, então o logout tem efeito imediato. Com SQLite local, essa consulta custa microssegundos.

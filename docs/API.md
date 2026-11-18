@@ -68,9 +68,11 @@ Sincroniza e devolve as contas abertas e dentro do orçamento: `{ accounts: [{ i
 
 ### `POST /api/chat/preview`
 
-`{ accountId, message }` (mensagem com até 500 caracteres). Não grava nada.
+`{ accountId, message, categoryId? }` (mensagem com até 500 caracteres). Não grava nada.
 
-- Transação: `{ kind: "transaction", pendingId, expiresAt, preview: { command, account, category, transaction, text } }`.
+`categoryId` é opcional: é enviado quando o usuário escolhe uma das sugestões de categoria. Ele substitui a categoria escrita na mensagem, depois de validado contra o orçamento. Categoria desconhecida devolve `400` (`VALIDATION_ERROR` para transações, `CATEGORY_NOT_FOUND` para perguntas de saldo) com `suggestions: [{ id, name }]` (até 3).
+
+- Transação: `{ kind: "transaction", pendingId, expiresAt, preview: { command, account, category, transaction, text } }`. Em compras divididas, `category` é `null`, `preview.splits` traz `[{ amount, category: { id, name } }]` e `transaction.subtransactions` traz as partes. `categoryId` não pode ser usado com divisões (`400`).
 - `Quanto tenho em X?`: `{ kind: "category-available", message, category, month, available }`.
 - `Posso gastar R$ N com X?`: `{ kind: "category-can-spend", message, category, month, available, requested, remaining, canSpend }`.
 
@@ -85,6 +87,19 @@ Valores em centavos, exceto `command.amount`. Erros: `400 INVALID_COMMAND | VALI
 - `409 NO_PENDING_TRANSACTION | PENDING_EXPIRED | CONNECTION_CHANGED | ACCOUNT_UNAVAILABLE`: nada foi gravado.
 - `503 ACTUAL_ERROR`: falha antes da gravação, nada foi gravado.
 - `503 WRITE_UNCERTAIN`: a própria gravação falhou. Verifique no Actual antes de tentar de novo.
+
+A confirmação também devolve `undoId`, `undoExpiresAt` e `undoTtlMs` quando a transação criada pôde ser identificada.
+
+### `POST /api/chat/undo`
+
+`{ accountId, undoId? }`: desfaz a última transação confirmada nesta conversa. Sem `undoId`, usa a mais recente; a mensagem `desfazer` em `/api/chat/preview` faz o mesmo e responde com `kind: "undo"`.
+
+- `200 { kind: "undo", undoneId, synced, message }`: transação apagada (com `synced: false`, apagada na cópia local e enviada na próxima sincronização).
+- `409 NO_UNDO | UNDO_EXPIRED`: não há o que desfazer (outra conversa, outro usuário, já desfeita ou prazo de 10 minutos esgotado).
+- `409 UNDO_NOT_FOUND | UNDO_CHANGED`: a transação foi apagada ou alterada no Actual; nada foi feito.
+- `409 CONNECTION_CHANGED`: a conexão mudou depois do registro.
+- `503 ACTUAL_ERROR`: Actual indisponível; nada foi feito e o desfazer continua disponível.
+- `503 UNDO_UNCERTAIN`: a exclusão falhou no meio. Verifique no Actual.
 
 ### `POST /api/chat/cancel`
 

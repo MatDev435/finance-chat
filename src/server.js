@@ -11,6 +11,7 @@ import { openDatabase } from './db.js';
 import { installFetchTimeout } from './fetch-timeout.js';
 import { createPendingStore } from './pending.js';
 import { createSecretBox } from './secrets.js';
+import { createUndoStore } from './undo.js';
 import { createUserStore } from './user-store.js';
 
 let config;
@@ -36,6 +37,7 @@ const app = createApp({
   store: createUserStore(db, createSecretBox(config.appSecret)),
   actual,
   pending: createPendingStore(),
+  undo: createUndoStore(),
   publicDir: join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public'),
 });
 

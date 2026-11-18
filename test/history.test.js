@@ -107,3 +107,11 @@ test('works in memory when storage is unavailable', () => {
   history.clear();
   assert.equal(history.load('acc').length, 0);
 });
+
+test('stores the parts of a split preview (category name and value only)', () => {
+  const clean = sanitizeEntry({
+    id: 'p', role: 'assistant', kind: 'preview', text: 'ok', status: 'pending',
+    data: { type: 'expense', amount: 100, description: 'mercado', category: '', account: 'Nubank', date: '2026-11-18', parts: [{ category: 'Alimentação', amount: 70, id: 'secret' }, { category: 'Limpeza', amount: 30 }] },
+  });
+  assert.deepEqual(clean.data.parts, [{ category: 'Alimentação', amount: 70 }, { category: 'Limpeza', amount: 30 }]);
+});

@@ -1,3 +1,5 @@
+import { takeLeadingDate, takeTrailingDate } from './dates.js';
+
 const COMMANDS = new Map([
   ['gastei', 'expense'],
   ['comprei', 'expense'],
@@ -78,15 +80,57 @@ function parseCanSpendQuestion(text) {
   return { kind: 'category-can-spend', amount, category: normalizeCategory(remainder) };
 }
 
+const MAX_SPLITS = 10;
+const SPLIT_AMOUNT = String.raw`(?:r\$|\$)?\s*\d[\d.,]*(?:\s+reais?)?`;
+const SPLIT_VALUE_FIRST = new RegExp(String.raw`^(${SPLIT_AMOUNT})\s+(?:(?:de|em|para|pra|com|na|no)\s+)?(.+)$`, 'i');
+const SPLIT_VALUE_LAST = new RegExp(String.raw`^(.+?):?\s+(?:(?:de|com)\s+)?(${SPLIT_AMOUNT})$`, 'i');
+// Separators: "," or ";" that are not a decimal comma (between digits), or " e " next to a number.
+const SPLIT_SEPARATOR = /(?<!\d)[,;]\s*|[,;](?!\d)\s*|\s+e\s+(?=(?:r\$|\$)?\s*\d)|(?<=\d)\s+e\s+/i;
+
+function centsText(cents) {
+  return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+/**
+ * "70 alimentação, 30 limpeza" or "alimentação 70 e limpeza 30" → [{ amount, category }].
+ * The parts must add up exactly to the total of the command.
+ */
+export function parseSplits(text, total) {
+  const items = text.split(SPLIT_SEPARATOR).map((item) => item.trim()).filter(Boolean);
+  if (items.length < 2) fail('Informe pelo menos duas partes depois de “categorias”, como: categorias 70 alimentação, 30 limpeza.');
+  if (items.length > MAX_SPLITS) fail(`Divida a movimentação em no máximo ${MAX_SPLITS} partes.`);
+  const splits = items.map((item) => {
+    const valueFirst = /^(?:r\$|\$)?\s*\d/i.test(item) ? item.match(SPLIT_VALUE_FIRST) : null;
+    const valueLast = valueFirst ? null : item.match(SPLIT_VALUE_LAST);
+    if (!valueFirst && !valueLast) fail(`Não entendi a parte “${item}”. Use o formato “70 alimentação”.`);
+    const [amountText, categoryText] = valueFirst ? [valueFirst[1], valueFirst[2]] : [valueLast[2], valueLast[1]];
+    return { amount: parseAmount(amountText), category: normalizeCategory(categoryText) };
+  });
+  const sum = splits.reduce((acc, split) => acc + amountToCents(split.amount), 0);
+  if (sum !== amountToCents(total)) fail(`A soma das partes (${centsText(sum)}) é diferente do total (${centsText(amountToCents(total))}).`);
+  return splits;
+}
+
 export function parseCommand(input) {
-  const text = normalizeText(input);
+  let text = normalizeText(input);
   if (!text) fail('Digite uma mensagem financeira.');
+
+  // Optional date before the command: "Ontem gastei...", "Dia 12, comprei...".
+  let when;
+  const leading = takeLeadingDate(text);
+  if (leading && COMMANDS.has(leading.rest.split(' ')[0].toLocaleLowerCase('pt-BR'))) {
+    when = leading.when;
+    text = leading.rest;
+  }
 
   const words = text.split(' ');
   const operation = COMMANDS.get(words[0].toLocaleLowerCase('pt-BR'));
   if (!operation) fail('A mensagem deve começar com uma palavra como “gastei”, “comprei”, “mandei”, “ganhei” ou “recebi”.');
 
-  const categoryIndex = words.findIndex((word, index) => index > 1 && word.toLocaleLowerCase('pt-BR') === 'categoria');
+  // "categoria X" (single category) or, only when "categoria" is absent, "categorias 70 X, 30 Y" (split).
+  const keywordIndex = (pattern) => words.findIndex((word, index) => index > 1 && pattern.test(word));
+  let categoryIndex = keywordIndex(/^categoria$/i);
+  const isSplit = categoryIndex === -1 && (categoryIndex = keywordIndex(/^categorias:?$/i)) !== -1;
   if (categoryIndex === -1) fail('Informe a categoria usando a palavra “categoria”.');
 
   const beforeCategory = words.slice(1, categoryIndex).join(' ');
@@ -97,14 +141,21 @@ export function parseCommand(input) {
   const currencyPrefix = beforeCategory.match(/^(?:r\$|\$)/i)?.[0] || '';
   const amountToken = `${currencyPrefix}${match[1]}`;
   const amount = match[2] ? parseAmount(`${amountToken}.${match[2]}`) : parseAmount(amountToken);
-  const description = match[3].trim().replace(/^(?:para\s+(?:a|o)|no|na|para|pra|pro|da|do|em|de)\s+/i, '').replace(/,+$/, '').trim();
+  const description = match[3].trim().replace(/^(?:para\s+(?:a|o)|no|na|para|pra|pro|da|do|em|de)\s+/i, '').replace(isSplit ? /[,:]+$/ : /,+$/, '').trim();
   if (!description) fail('Informe uma descrição ou estabelecimento.');
 
-  const category = words.slice(categoryIndex + 1).join(' ').trim();
   const categoryWords = words.slice(categoryIndex + 1);
   const noteIndex = categoryWords.findIndex((word, index) => index > 0 && /^notas?:?$/i.test(word));
-  const categoryText = (noteIndex === -1 ? categoryWords : categoryWords.slice(0, noteIndex)).join(' ').replace(/[\s,]+$/, '').trim();
-  if (!categoryText) fail('Informe uma categoria depois de “categoria”.');
+  let categoryText = (noteIndex === -1 ? categoryWords : categoryWords.slice(0, noteIndex)).join(' ').replace(/[\s,]+$/, '').trim();
+
+  // Optional date at the end of the category: "categoria alimentação ontem", "categoria alimentação, dia 12".
+  const trailing = takeTrailingDate(categoryText);
+  if (trailing?.rest) {
+    if (when) fail('Informe a data só uma vez.');
+    when = trailing.when;
+    categoryText = trailing.rest;
+  }
+  if (!categoryText) fail(isSplit ? 'Informe as partes depois de “categorias”.' : 'Informe uma categoria depois de “categoria”.');
 
   let notes;
   if (noteIndex !== -1) {
@@ -113,19 +164,20 @@ export function parseCommand(input) {
     notes = notes.charAt(0).toLocaleUpperCase('pt-BR') + notes.slice(1);
   }
 
-  const command = {
-    type: operation,
-    amount,
-    description,
-    category: categoryText.charAt(0).toLocaleUpperCase('pt-BR') + categoryText.slice(1),
-  };
+  const command = { type: operation, amount, description };
+  if (isSplit) command.splits = parseSplits(categoryText, amount);
+  else command.category = categoryText.charAt(0).toLocaleUpperCase('pt-BR') + categoryText.slice(1);
   if (notes) command.notes = notes;
+  if (when) command.when = when;
   return command;
 }
+
+const UNDO_COMMAND = /^(?:desfazer|desfaz|desfaça|desfaca)(?:\s+(?:o\s+)?(?:último|ultimo)(?:\s+(?:lançamento|lancamento|registro|movimentação|movimentacao))?)?[.!]*$/i;
 
 export function parseMessage(input) {
   const text = normalizeText(input);
   if (!text) fail('Digite uma mensagem financeira.');
+  if (UNDO_COMMAND.test(text)) return { kind: 'undo' };
   return parseCanSpendQuestion(text)
     || parseAvailableCategoryQuestion(text)
     || { kind: 'transaction', command: parseCommand(text) };

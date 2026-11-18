@@ -1,11 +1,10 @@
-function normalizeName(value) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
-}
+import { resolveCategory } from './validation.js';
 
-export function findCategoryAvailability(categories, budgetMonth, requestedName) {
-  const category = categories.find((item) => normalizeName(item.name) === normalizeName(requestedName));
-  if (!category) {
-    const error = new Error(`A categoria '${requestedName}' não existe no Actual Budget.`);
+export function findCategoryAvailability(categories, budgetMonth, requestedName, categoryId) {
+  let category;
+  try {
+    category = resolveCategory(categories, requestedName, categoryId);
+  } catch (error) {
     error.code = 'CATEGORY_NOT_FOUND';
     throw error;
   }
@@ -20,11 +19,11 @@ export function findCategoryAvailability(categories, budgetMonth, requestedName)
   };
 }
 
-export async function getSynchronizedCategoryAvailability(apiClient, categoryName, month) {
+export async function getSynchronizedCategoryAvailability(apiClient, categoryName, month, categoryId) {
   await apiClient.sync();
   const [categories, budgetMonth] = await Promise.all([
     apiClient.getCategories(),
     apiClient.getBudgetMonth(month),
   ]);
-  return findCategoryAvailability(categories, budgetMonth, categoryName);
+  return findCategoryAvailability(categories, budgetMonth, categoryName, categoryId);
 }

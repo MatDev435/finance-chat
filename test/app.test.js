@@ -14,6 +14,8 @@ import { openDatabase } from '../src/db.js';
 import { createPendingStore } from '../src/pending.js';
 import { createSecretBox } from '../src/secrets.js';
 import { createUserStore } from '../src/user-store.js';
+import { resolveDate } from '../src/dates.js';
+import { currentLocalDate } from '../src/transaction-mapping.js';
 import { createBudget, createFakeActual } from './support/fake-actual.js';
 import { createClient } from './support/http-client.js';
 
@@ -466,5 +468,185 @@ test('oversized and malformed bodies are rejected', async () => {
   assert.equal((await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'x'.repeat(20_000) })).status, 413);
   assert.equal((await browser.post('/api/chat/preview', '{not json')).status, 400);
   assert.equal((await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'x'.repeat(501) })).status, 400);
+  await app.close();
+});
+
+test('a date in the message sets the transaction date; future dates are refused', async () => {
+  const app = await startApp();
+  const browser = await signedIn(app, 'ana', ANA_CONNECTION);
+  const budget = app.servers['https://ana.example'].files['sync-ana-0001'];
+  const yesterday = resolveDate({ daysAgo: 1 }, currentLocalDate());
+  const preview = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Ontem gastei 40 no mercado categoria alimentação' });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.preview.transaction.date, yesterday);
+  assert.match(preview.body.preview.text, /Data: \d{2}\/\d{2}\/\d{4}/);
+  const confirm = await browser.post('/api/chat/confirm', { pendingId: preview.body.pendingId });
+  assert.match(confirm.body.message, /Data: /, 'success text mentions a date other than today');
+  assert.equal(budget.transactions[0].date, yesterday);
+
+  const today = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 5 na padaria categoria alimentação' });
+  const todayConfirm = await browser.post('/api/chat/confirm', { pendingId: today.body.pendingId });
+  assert.doesNotMatch(todayConfirm.body.message, /Data: /, 'usual message unchanged for today');
+
+  const future = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 5 na padaria categoria alimentação 01/01/2999' });
+  assert.equal(future.status, 400);
+  assert.match(future.body.error, /futuro/);
+  assert.equal(budget.transactions.length, 2);
+  await app.close();
+});
+
+test('an unknown category returns suggestions; choosing one previews with that category', async () => {
+  const app = await startApp();
+  const browser = await signedIn(app, 'ana', ANA_CONNECTION);
+  const typo = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 40 no mercado categoria alimetação' });
+  assert.equal(typo.status, 400);
+  assert.deepEqual(typo.body.suggestions, [{ id: 'cat-food', name: 'Alimentação' }]);
+  assert.match(typo.body.error, /Você quis dizer: Alimentação\?/);
+
+  const chosen = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 40 no mercado categoria alimetação', categoryId: 'cat-food' });
+  assert.equal(chosen.status, 200);
+  assert.equal(chosen.body.preview.category.name, 'Alimentação');
+  assert.equal(chosen.body.preview.transaction.category, 'cat-food');
+
+  const noAccent = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 40 no mercado categoria alimentacao' });
+  assert.equal(noAccent.body.preview.category.name, 'Alimentação');
+
+  const query = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Quanto tenho em Alimetação?' });
+  assert.equal(query.status, 400);
+  assert.equal(query.body.code, 'CATEGORY_NOT_FOUND');
+  assert.deepEqual(query.body.suggestions, [{ id: 'cat-food', name: 'Alimentação' }]);
+  const queryChosen = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Quanto tenho em Alimetação?', categoryId: 'cat-food' });
+  assert.equal(queryChosen.body.available, 12345);
+
+  assert.equal((await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 4 x categoria alimentação', categoryId: '../x' })).status, 400);
+  await app.close();
+});
+
+test('split purchases: preview lists the parts, confirmation writes one transaction with subtransactions', async () => {
+  const app = await startApp();
+  const browser = await signedIn(app, 'ana', ANA_CONNECTION);
+  const budget = app.servers['https://ana.example'].files['sync-ana-0001'];
+  const preview = await browser.post('/api/chat/preview', { accountId: 'acc-inter', message: 'Gastei 100 no mercado categorias 70 alimentação, 30 salário' });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.preview.category, null);
+  assert.deepEqual(preview.body.preview.splits.map((s) => [s.category.name, s.amount]), [['Alimentação', 70], ['Salário', 30]]);
+  assert.match(preview.body.preview.text, /Categorias: Alimentação \(R\$\s?70,00\), Salário \(R\$\s?30,00\)/);
+  const confirm = await browser.post('/api/chat/confirm', { pendingId: preview.body.pendingId });
+  assert.equal(confirm.status, 200);
+  assert.match(confirm.body.message, /Categorias: Alimentação/);
+  assert.equal(budget.transactions.length, 1);
+  assert.equal(budget.transactions[0].amount, -10000);
+  assert.equal(budget.transactions[0].subtransactions.length, 2);
+
+  const withChoice = await browser.post('/api/chat/preview', { accountId: 'acc-inter', message: 'Gastei 100 no mercado categorias 70 alimentação, 30 salário', categoryId: 'cat-food' });
+  assert.equal(withChoice.status, 400);
+  const unknown = await browser.post('/api/chat/preview', { accountId: 'acc-inter', message: 'Gastei 100 no mercado categorias 70 alimetação, 30 salário' });
+  assert.equal(unknown.status, 400);
+  assert.match(unknown.body.error, /Você quis dizer: Alimentação/);
+  assert.equal(unknown.body.suggestions, undefined);
+  const wrongSum = await browser.post('/api/chat/preview', { accountId: 'acc-inter', message: 'Gastei 100 no mercado categorias 70 alimentação, 20 salário' });
+  assert.equal(wrongSum.status, 400);
+  assert.equal(budget.transactions.length, 1);
+  await app.close();
+});
+
+test('undo: the last confirmed transaction of a chat can be undone once, by button or by typing "desfazer"', async () => {
+  const app = await startApp();
+  const browser = await signedIn(app, 'ana', ANA_CONNECTION);
+  const budget = app.servers['https://ana.example'].files['sync-ana-0001'];
+  const confirmOne = async (accountId, message) => {
+    const preview = await browser.post('/api/chat/preview', { accountId, message });
+    return (await browser.post('/api/chat/confirm', { pendingId: preview.body.pendingId })).body;
+  };
+
+  const first = await confirmOne('acc-nubank', 'Gastei 40 no mercado categoria alimentação');
+  assert.ok(first.undoId);
+  assert.ok(first.undoTtlMs > 9 * 60 * 1000);
+  const undone = await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: first.undoId });
+  assert.equal(undone.status, 200);
+  assert.match(undone.body.message, /Movimentação desfeita: Despesa de R\$\s?40,00 para mercado/);
+  assert.equal(budget.transactions.length, 0);
+  assert.equal((await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: first.undoId })).body.code, 'NO_UNDO');
+
+  // Only the most recent one per chat: the older one is no longer undoable.
+  const a = await confirmOne('acc-nubank', 'Gastei 1 na banca categoria alimentação');
+  const b = await confirmOne('acc-nubank', 'Gastei 2 na banca categoria alimentação');
+  assert.equal((await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: a.undoId })).status, 409);
+  const typed = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'desfazer' });
+  assert.equal(typed.status, 200);
+  assert.equal(typed.body.kind, 'undo');
+  assert.equal(typed.body.undoneId, b.undoId);
+  assert.deepEqual(budget.transactions.map((t) => t.amount), [-100]);
+  const nothing = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'desfazer' });
+  assert.equal(nothing.status, 409);
+  assert.equal(nothing.body.code, 'NO_UNDO');
+
+  // Undo is per chat: an undo id cannot be used from another chat (and stays valid in its own).
+  const c = await confirmOne('acc-inter', 'Gastei 3 na banca categoria alimentação');
+  assert.equal((await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: c.undoId })).status, 409);
+  assert.equal((await browser.post('/api/chat/undo', { accountId: 'acc-inter', undoId: c.undoId })).status, 200);
+  await app.close();
+});
+
+test('undo is refused when the transaction was changed in Actual, and for other users', async () => {
+  const app = await startApp();
+  const ana = await signedIn(app, 'ana', ANA_CONNECTION);
+  const bia = await signedIn(app, 'bia', BIA_CONNECTION);
+  const budget = app.servers['https://ana.example'].files['sync-ana-0001'];
+  const preview = await ana.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 40 no mercado categoria alimentação' });
+  const confirm = (await ana.post('/api/chat/confirm', { pendingId: preview.body.pendingId })).body;
+
+  assert.equal((await bia.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: confirm.undoId })).status, 409, 'another user');
+  budget.transactions[0].amount = -4100;
+  const changed = await ana.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: confirm.undoId });
+  assert.equal(changed.status, 409);
+  assert.equal(changed.body.code, 'UNDO_CHANGED');
+  assert.equal(budget.transactions.length, 1, 'never deletes a modified transaction');
+  await app.close();
+});
+
+test('undo stays available when Actual is unreachable, and split purchases are undone whole', async () => {
+  const app = await startApp();
+  const browser = await signedIn(app, 'ana', ANA_CONNECTION);
+  const budget = app.servers['https://ana.example'].files['sync-ana-0001'];
+  const preview = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 100 no mercado categorias 70 alimentação, 30 salário' });
+  const confirm = (await browser.post('/api/chat/confirm', { pendingId: preview.body.pendingId })).body;
+  app.servers['https://ana.example'].offline = true;
+  const offline = await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: confirm.undoId });
+  assert.equal(offline.status, 503);
+  assert.match(offline.body.error, /Nada foi desfeito/);
+  app.servers['https://ana.example'].offline = false;
+  assert.equal((await browser.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: confirm.undoId })).status, 200);
+  assert.equal(budget.transactions.length, 0);
+  await app.close();
+});
+
+test('PWA: manifest, icons and service worker are served; the worker never handles the API', async () => {
+  const app = await startApp();
+  const client = app.client();
+  const manifest = await client.get('/manifest.webmanifest');
+  assert.equal(manifest.status, 200);
+  assert.match(manifest.headers.get('content-type'), /application\/manifest\+json/);
+  assert.equal(manifest.body.display, 'standalone');
+  assert.equal(manifest.body.start_url, '/');
+  const sizes = manifest.body.icons.map((icon) => `${icon.sizes}:${icon.purpose}`);
+  assert.ok(sizes.includes('192x192:any') && sizes.includes('512x512:any') && sizes.includes('512x512:maskable'));
+  for (const src of [...manifest.body.icons.map((icon) => icon.src), '/icons/apple-touch-icon.png']) {
+    const icon = await fetch(app.base + src);
+    assert.equal(icon.status, 200, src);
+    assert.equal(icon.headers.get('content-type'), 'image/png');
+    assert.deepEqual([...new Uint8Array(await icon.arrayBuffer()).slice(1, 4)], [0x50, 0x4e, 0x47], `${src} is a PNG`);
+  }
+
+  const worker = await client.get('/sw.js');
+  assert.equal(worker.status, 200);
+  assert.match(worker.headers.get('content-type'), /javascript/);
+  assert.match(worker.text, /url\.pathname\.startsWith\('\/api\/'\)/, 'API requests bypass the worker');
+  const shell = JSON.parse(worker.text.match(/const SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"').replace(/,\s*\]/, ']'));
+  for (const path of shell) assert.equal((await fetch(app.base + path)).status, 200, `cached shell file ${path} exists`);
+
+  const page = await client.get('/');
+  assert.match(page.text, /<link rel="manifest" href="\/manifest.webmanifest">/);
+  assert.match(page.text, /apple-touch-icon/);
   await app.close();
 });

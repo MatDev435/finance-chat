@@ -58,3 +58,32 @@ test('maps an optional note to Actual transaction notes', () => {
     },
   });
 });
+
+test('maps a split purchase to subtransactions with signed integer cents and no parent category', () => {
+  const splitCategories = [...categories, { id: 'category-cleaning', name: 'Limpeza' }];
+  const command = parseCommand('Gastei 100,50 no mercado categorias 70,50 alimentação, 30 limpeza notas compra do mês');
+  const result = toActualImport(validateCommand(command, { accounts, categories: splitCategories, accountId: 'account-bradesco' }), '2026-11-18');
+  assert.deepEqual(result, {
+    accountId: 'account-bradesco',
+    transaction: {
+      date: '2026-11-18',
+      amount: -10050,
+      payee_name: 'mercado',
+      subtransactions: [{ amount: -7050, category: 'category-food' }, { amount: -3000, category: 'category-cleaning' }],
+      notes: 'Compra do mês',
+    },
+  });
+  const income = toActualImport(validateCommand(parseCommand('Recebi 300 da empresa categorias 200 salário, 100 alimentação'), { accounts, categories, accountId: 'account-bradesco' }), '2026-11-18');
+  assert.deepEqual(income.transaction.subtransactions.map((part) => part.amount), [20000, 10000]);
+});
+
+test('a split with an unknown category fails with suggestions in the text only', () => {
+  const command = parseCommand('Gastei 100 no mercado categorias 70 alimentaçao, 30 transprte');
+  try {
+    validateCommand(command, { accounts, categories, accountId: 'account-bradesco' });
+    assert.fail('should throw');
+  } catch (error) {
+    assert.match(error.message, /Transprte.*Você quis dizer: Transporte\?/);
+    assert.equal(error.suggestions, undefined);
+  }
+});

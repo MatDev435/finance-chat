@@ -14,6 +14,7 @@ const STATUS_BADGES = {
   confirmed: ['Registrada', 'confirmed'],
   cancelled: ['Cancelada', 'cancelled'],
   failed: ['Não registrada', 'failed'],
+  undone: ['Desfeita', 'cancelled'],
   stale: ['Não confirmada', 'cancelled'],
 };
 
@@ -68,7 +69,11 @@ function previewCard(entry, actions) {
   const badge = element('span', 'pending-badge');
   card.append(cardHeading(icons[data.type] || icons.expense, data.type === 'income' ? 'RECEITA' : 'DESPESA', formatCurrency(data.amount), badge));
   const details = element('div', 'transaction-details');
-  details.append(detailRow('category', 'Categoria', data.category), detailRow('payee', 'Beneficiário', data.description), detailRow('account', 'Conta', data.account), detailRow('date', 'Data', formatDate(data.date)));
+  // A split purchase shows one row per part: category and its value.
+  const categoryRows = data.parts?.length
+    ? data.parts.map((part) => detailRow('category', part.category, formatCurrency(part.amount)))
+    : [detailRow('category', 'Categoria', data.category)];
+  details.append(...categoryRows, detailRow('payee', 'Beneficiário', data.description), detailRow('account', 'Conta', data.account), detailRow('date', 'Data', formatDate(data.date)));
   if (data.notes) details.append(detailRow('payee', 'Nota', data.notes));
   card.append(details);
   const status = entry.status === 'pending' && !actions ? 'stale' : entry.status;
@@ -76,6 +81,8 @@ function previewCard(entry, actions) {
 
   if (actions) {
     const row = element('div', 'message-actions');
+    row.dataset.live = 'preview';
+    row.dataset.liveEntry = entry.id;
     const confirmButton = element('button', '', '✓  Aprovar');
     const cancelButton = element('button', 'secondary', '×  Cancelar');
     confirmButton.type = 'button';
@@ -145,7 +152,36 @@ export function createChatView({ conversation, typingIndicator }) {
     if (entry.kind === 'preview' && entry.data) card = previewCard(entry, actions);
     if (entry.kind === 'spending' && entry.data) card = spendingCard(entry.data);
     if (card) bubble.append(card);
-    else {
+    if (actions?.suggestions?.length) {
+      const row = element('div', 'suggestion-actions');
+      row.dataset.live = 'suggestions';
+      row.dataset.liveEntry = entry.id;
+      for (const suggestion of actions.suggestions) {
+        const button = element('button', '', `Usar “${suggestion.name}”`);
+        button.type = 'button';
+        button.addEventListener('click', () => {
+          row.querySelectorAll('button').forEach((item) => { item.disabled = true; });
+          actions.onPick(suggestion);
+        });
+        row.append(button);
+      }
+      bubble.append(row);
+    }
+    if (actions?.onUndo) {
+      const row = element('div', 'undo-actions');
+      row.dataset.live = 'undo';
+      row.dataset.liveEntry = entry.id;
+      const button = element('button', '', '↶  Desfazer');
+      button.type = 'button';
+      button.setAttribute('aria-label', 'Desfazer esta movimentação');
+      button.addEventListener('click', () => {
+        button.disabled = true;
+        actions.onUndo();
+      });
+      row.append(button);
+      bubble.append(row);
+    }
+    if (!card) {
       const time = element('time', 'message-time', formatTime(entry.at));
       time.dateTime = new Date(entry.at).toISOString();
       content.append(time);

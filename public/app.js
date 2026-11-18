@@ -26,7 +26,11 @@ const state = {
   settingsOpen: false,
   history: null,
   busy: new Set(),
-  /** history entry id → { accountId, pendingId }. Memory only: never persisted. */
+  /**
+   * history entry id → live action for that message: { type: 'preview', accountId, pendingId },
+   * { type: 'suggestions', accountId, message, suggestions } or
+   * { type: 'undo', accountId, undoId, previewEntryId }. Memory only: never persisted.
+   */
   live: new Map(),
 };
 
@@ -310,7 +314,7 @@ function renderChat() {
   $('#chat-avatar').textContent = initials(account.name);
   chatView.render(state.history.load(account.id), {
     greeting: GREETING,
-    liveActions: (entry) => (entry.kind === 'preview' && entry.status === 'pending' && state.live.has(entry.id) ? previewActions(account.id, entry.id) : undefined),
+    liveActions: (entry) => liveActionsFor(account.id, entry),
   });
   syncBusyIndicators();
 }
@@ -365,19 +369,39 @@ function isVisible(accountId) {
   return app.dataset.screen === 'workspace' && state.selectedId === accountId && !state.settingsOpen;
 }
 
+/** Buttons shown on a message while its action is still possible (never for restored history). */
+function liveActionsFor(accountId, entry) {
+  const item = state.live.get(entry.id);
+  if (!item || item.accountId !== accountId) return undefined;
+  if (item.type === 'preview' && entry.kind === 'preview' && entry.status === 'pending') return previewActions(accountId, entry.id);
+  if (item.type === 'suggestions') return { suggestions: item.suggestions, onPick: (category) => pickSuggestion(accountId, entry.id, category) };
+  if (item.type === 'undo') return { onUndo: () => undoLive(accountId, entry.id) };
+  return undefined;
+}
+
+/** Removes one message's live action (and its buttons, if on screen). */
+function removeLive(entryId) {
+  state.live.delete(entryId);
+  $('#conversation').querySelectorAll(`[data-live-entry="${entryId}"]`).forEach((row) => row.remove());
+}
+
 /** Stores the entry in this chat's local history and shows it if the chat is open. */
-function addEntry(accountId, entry, { live = false } = {}) {
+function addEntry(accountId, entry) {
   const full = { id: newEntryId(), at: Date.now(), ...entry };
   state.history?.append(accountId, full);
-  if (isVisible(accountId)) chatView.append(full, { actions: live ? previewActions(accountId, full.id) : undefined });
+  if (isVisible(accountId)) chatView.append(full, { actions: liveActionsFor(accountId, full) });
   renderAccountList();
   return full;
 }
 
-/** The server keeps one pending preview per chat: older cards stop being actionable. */
-function retireLivePreviews(accountId) {
-  for (const [entryId, item] of state.live) if (item.accountId === accountId) state.live.delete(entryId);
-  if (isVisible(accountId)) $('#conversation').querySelectorAll('.message-actions').forEach((row) => row.remove());
+/**
+ * Removes live actions of these types from a chat. The server keeps one pending
+ * preview per chat, so a new message makes older previews and suggestions stale.
+ */
+function retireLiveActions(accountId, types) {
+  for (const [entryId, item] of state.live) if (item.accountId === accountId && types.includes(item.type)) state.live.delete(entryId);
+  if (!isVisible(accountId)) return;
+  for (const type of types) $('#conversation').querySelectorAll(`[data-live="${type}"]`).forEach((row) => row.remove());
 }
 
 function updateAccountName(account) {
@@ -397,18 +421,26 @@ function handleChatError(accountId, error, text = error.message) {
   if (error.code === 'CONNECTION_REQUIRED' || error.code === 'CONNECTION_UNREADABLE') openSetup({ message: error.message });
 }
 
-$('#command-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const accountId = state.selectedId;
-  const text = messageInput.value.trim();
-  if (!accountId || !text || state.busy.has(accountId)) return;
-  retireLivePreviews(accountId);
-  addEntry(accountId, { role: 'user', kind: 'text', text });
-  messageInput.value = '';
+/**
+ * Sends a message of this chat. `categoryId` is set when the user picked a
+ * suggested category; `echo` is the text shown as the user's message.
+ */
+async function sendMessage(accountId, message, { categoryId, echo = message } = {}) {
+  if (state.busy.has(accountId)) return;
+  retireLiveActions(accountId, ['preview', 'suggestions']);
+  addEntry(accountId, { role: 'user', kind: 'text', text: echo });
   setBusy(accountId, true);
   try {
-    const data = await api('POST', '/api/chat/preview', { accountId, message: text });
-    if (data.kind === 'category-available') {
+    const data = await api('POST', '/api/chat/preview', { accountId, message, ...(categoryId ? { categoryId } : {}) });
+    if (data.kind === 'undo') {
+      for (const [entryId, item] of state.live) {
+        if (item.type === 'undo' && item.undoId === data.undoneId) {
+          removeLive(entryId);
+          markUndone(accountId, item.previewEntryId);
+        }
+      }
+      addEntry(accountId, { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message });
+    } else if (data.kind === 'category-available') {
       addEntry(accountId, { role: 'assistant', kind: 'text', text: data.message });
     } else if (data.kind === 'category-can-spend') {
       addEntry(accountId, {
@@ -418,23 +450,46 @@ $('#command-form').addEventListener('submit', async (event) => {
     } else {
       const { preview } = data;
       const entryId = newEntryId();
-      state.live.set(entryId, { accountId, pendingId: data.pendingId });
+      state.live.set(entryId, { type: 'preview', accountId, pendingId: data.pendingId });
       addEntry(accountId, {
         id: entryId, role: 'assistant', kind: 'preview', text: PREVIEW_TEXT, status: 'pending',
         data: {
           type: preview.command.type, amount: preview.command.amount, description: preview.command.description,
-          category: preview.category.name, account: preview.account.name, date: preview.transaction.date, notes: preview.command.notes,
+          category: preview.category?.name ?? '', account: preview.account.name, date: preview.transaction.date, notes: preview.command.notes,
+          parts: preview.splits?.map((split) => ({ category: split.category.name, amount: split.amount })),
         },
-      }, { live: true });
+      });
       updateAccountName(preview.account);
     }
   } catch (error) {
-    handleChatError(accountId, error);
+    if (error.suggestions.length) {
+      const entryId = newEntryId();
+      state.live.set(entryId, { type: 'suggestions', accountId, message, suggestions: error.suggestions });
+      addEntry(accountId, { id: entryId, role: 'assistant', kind: 'error', text: error.message });
+    } else {
+      handleChatError(accountId, error);
+    }
   } finally {
     setBusy(accountId, false);
     if (isVisible(accountId)) focusComposer();
   }
+}
+
+$('#command-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const accountId = state.selectedId;
+  const text = messageInput.value.trim();
+  if (!accountId || !text || state.busy.has(accountId)) return;
+  messageInput.value = '';
+  sendMessage(accountId, text);
 });
+
+/** Repeats the original message with the category the user picked. */
+function pickSuggestion(accountId, entryId, category) {
+  const item = state.live.get(entryId);
+  if (!item || state.busy.has(accountId)) return;
+  sendMessage(accountId, item.message, { categoryId: category.id, echo: `Usar a categoria “${category.name}”` });
+}
 
 function previewActions(accountId, entryId) {
   return {
@@ -466,7 +521,15 @@ async function confirmPreview(accountId, entryId, ui) {
   try {
     const data = await api('POST', '/api/chat/confirm', { pendingId: item.pendingId });
     settlePreview(accountId, entryId, ui, 'confirmed');
-    addEntry(accountId, { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message });
+    const success = { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message };
+    if (data.undoId) {
+      // Only the last confirmed transaction of a chat can be undone, for a few minutes.
+      retireLiveActions(accountId, ['undo']);
+      success.id = newEntryId();
+      state.live.set(success.id, { type: 'undo', accountId, undoId: data.undoId, previewEntryId: entryId });
+      setTimeout(() => removeLive(success.id), data.undoTtlMs ?? 10 * 60 * 1000);
+    }
+    addEntry(accountId, success);
     updateAccountName(data.account);
   } catch (error) {
     settlePreview(accountId, entryId, ui, 'failed');
@@ -474,6 +537,34 @@ async function confirmPreview(accountId, entryId, ui) {
       ? 'Não foi possível confirmar se a movimentação foi registrada. Verifique no Actual Budget antes de enviar novamente.'
       : error.message;
     handleChatError(accountId, error, text);
+  } finally {
+    setBusy(accountId, false);
+    if (isVisible(accountId)) focusComposer();
+  }
+}
+
+/** Marks a preview card as undone, in history and on screen. */
+function markUndone(accountId, previewEntryId) {
+  state.history?.update(accountId, previewEntryId, { status: 'undone' });
+  if (isVisible(accountId)) renderChat();
+}
+
+async function undoLive(accountId, successEntryId) {
+  const item = state.live.get(successEntryId);
+  if (!item || state.busy.has(accountId)) return;
+  removeLive(successEntryId);
+  setBusy(accountId, true);
+  try {
+    const data = await api('POST', '/api/chat/undo', { accountId, undoId: item.undoId });
+    markUndone(accountId, item.previewEntryId);
+    addEntry(accountId, { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message });
+  } catch (error) {
+    // Actual unreachable (or no answer): the server keeps the undo available, so the button comes back.
+    if (error.code === 'ACTUAL_ERROR' || error.code === 'NETWORK') {
+      state.live.set(successEntryId, item);
+      if (isVisible(accountId)) renderChat();
+    }
+    handleChatError(accountId, error, error.code === 'NETWORK' ? 'Não foi possível confirmar se a movimentação foi desfeita. Verifique no Actual Budget.' : error.message);
   } finally {
     setBusy(accountId, false);
     if (isVisible(accountId)) focusComposer();
@@ -524,6 +615,13 @@ async function boot() {
       screen.append(retry);
     }
   }
+}
+
+/* ---------- Installable app (PWA) ---------- */
+
+// Secure contexts only (HTTPS or localhost). The worker caches the interface files, never API data.
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
 }
 
 boot();

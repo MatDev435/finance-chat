@@ -99,6 +99,10 @@ Abra `https://chat.exemplo.com` e crie a primeira conta (o primeiro usuário sem
 
 Para cadastrar outra pessoa: coloque `ALLOW_SIGNUP=true`, rode `sudo systemctl restart finance-chat`, peça o cadastro e volte para `false`.
 
+## App instalável (PWA)
+
+A instalação no celular e o service worker exigem HTTPS, que o Caddy já fornece. Nada precisa ser configurado no servidor: `manifest.webmanifest`, `sw.js` e `icons/` são servidos pelo próprio Finance Chat. Depois de atualizar o código, o app instalado usa a versão nova na próxima abertura com conexão.
+
 ## Operação
 
 ```bash

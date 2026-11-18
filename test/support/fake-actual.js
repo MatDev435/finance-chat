@@ -16,7 +16,8 @@ export function createFakeActual(servers) {
   const empty = () => ({ serverURL: null, dataDir: null, server: null, budget: null, syncId: null });
   let state = empty();
   const calls = [];
-  const hooks = { beforeSync: null, beforeAdd: null };
+  const hooks = { beforeSync: null, beforeAdd: null, beforeDelete: null };
+  let nextId = 1;
   const tick = () => new Promise((resolve) => setTimeout(resolve, Math.random() * 3));
 
   function openBudget() {
@@ -92,8 +93,23 @@ export function createFakeActual(servers) {
       await tick();
       const budget = openBudget();
       hooks.beforeAdd?.(state);
-      for (const transaction of transactions) budget.transactions.push({ ...structuredClone(transaction), account: accountId });
+      for (const transaction of transactions) budget.transactions.push({ id: `tx-${nextId++}`, ...structuredClone(transaction), account: accountId });
       return 'ok';
+    },
+
+    async getTransactions(accountId, startDate, endDate) {
+      await tick();
+      return structuredClone(openBudget().transactions.filter((t) => t.account === accountId && t.date >= startDate && t.date <= endDate));
+    },
+
+    async deleteTransaction(id) {
+      calls.push({ op: 'delete', syncId: state.syncId, id });
+      await tick();
+      const budget = openBudget();
+      hooks.beforeDelete?.(state);
+      const removed = budget.transactions.filter((t) => t.id === id);
+      budget.transactions = budget.transactions.filter((t) => t.id !== id);
+      return removed;
     },
   };
 }
