@@ -9,14 +9,15 @@
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html, body { min-height: 100%; }
-body { margin: 0; height: 100dvh; padding: 0; overflow: hidden; background: radial-gradient(circle at 80% 110%, #2b0c50 0, transparent 32rem), radial-gradient(circle at 10% 90%, #1c1038 0, transparent 28rem), var(--page); overflow-x: hidden; }
+html, body { height: 100%; }
+body { margin: 0; height: 100%; padding: 0; overflow: hidden; background: radial-gradient(circle at 80% 110%, #2b0c50 0, transparent 32rem), radial-gradient(circle at 10% 90%, #1c1038 0, transparent 28rem), var(--page); overflow-x: hidden; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #d4b4ff; outline-offset: 3px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.app-shell { width: 100%; height: 100dvh; margin: 0; padding: 1.2rem 1.5rem 1rem; display: flex; flex-direction: column; border: 0; border-radius: 0; background: linear-gradient(145deg, #101021e8, #080914f5); box-shadow: 0 2rem 5rem #0009, 0 0 4rem #4b197d24 inset; }
+/* Fixed to the visible viewport: in installed (standalone) mobile apps 100dvh can exceed the visible area. */
+.app-shell { position: fixed; inset: 0; width: auto; height: auto; margin: 0; padding: 1.2rem 1.5rem 1rem; display: flex; flex-direction: column; border: 0; border-radius: 0; background: linear-gradient(145deg, #101021e8, #080914f5); box-shadow: 0 2rem 5rem #0009, 0 0 4rem #4b197d24 inset; }
 .topbar { display: flex; align-items: center; gap: 1rem; padding: .25rem .2rem 1.2rem; }
 .brand-mark, .avatar { display: grid; place-items: center; flex: 0 0 auto; color: var(--purple-light); background: linear-gradient(145deg, #2e155d, #1d1239); border: 1px solid #52318d; box-shadow: 0 0 1.5rem #7028d426 inset; }
 .brand-mark { width: 3.7rem; height: 3.7rem; border-radius: 1rem; }
@@ -208,7 +209,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   .setup-layout { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 700px) {
-  body { padding: 0; } .app-shell { width: 100%; height: 100dvh; min-height: 100dvh; padding: max(.85rem, env(safe-area-inset-top)) max(.7rem, env(safe-area-inset-right)) max(.65rem, env(safe-area-inset-bottom)) max(.7rem, env(safe-area-inset-left)); border: 0; border-radius: 0; }
+  body { padding: 0; } .app-shell { padding: max(.85rem, env(safe-area-inset-top)) max(.7rem, env(safe-area-inset-right)) max(.65rem, env(safe-area-inset-bottom)) max(.7rem, env(safe-area-inset-left)); border: 0; border-radius: 0; }
   .topbar { padding-bottom: .8rem; } .brand-mark { width: 2.9rem; height: 2.9rem; border-radius: .8rem; } .brand-mark svg { width: 1.55rem; height: 1.55rem; }
   .brand-copy h1 { font-size: 1.25rem; } .brand-copy p { font-size: .78rem; } .conversation { padding: .7rem .45rem 1rem; } .message { font-size: .91rem; } .message-row { max-width: 100%; } .user-row { max-width: 88%; }
   .transaction-card { padding: .8rem; } .transaction-icon { width: 2.6rem; height: 2.6rem; } .detail-row { grid-template-columns: 1.2rem minmax(max-content, 1fr) minmax(0, auto); font-size: .8rem; } .grouped-row { padding-left: 2.85rem; } .composer { margin: .7rem 0 .4rem; } .privacy-note { display: none; }
