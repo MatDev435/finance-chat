@@ -139,7 +139,7 @@ export function createChatView({ conversation, typingIndicator }) {
     if (!isUser && !grouped) {
       const avatar = element('div', 'avatar');
       avatar.setAttribute('aria-hidden', 'true');
-      avatar.innerHTML = icons.account;
+      avatar.innerHTML = '<img src="/brand/finance-chat-symbol.svg" alt="" width="32" height="32">';
       row.append(avatar);
     }
     const content = element('div');
