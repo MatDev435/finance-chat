@@ -76,6 +76,7 @@ function previewCard(entry, actions) {
 
   if (actions) {
     const row = element('div', 'message-actions');
+    row.dataset.live = 'preview';
     const confirmButton = element('button', '', '✓  Aprovar');
     const cancelButton = element('button', 'secondary', '×  Cancelar');
     confirmButton.type = 'button';
@@ -145,7 +146,21 @@ export function createChatView({ conversation, typingIndicator }) {
     if (entry.kind === 'preview' && entry.data) card = previewCard(entry, actions);
     if (entry.kind === 'spending' && entry.data) card = spendingCard(entry.data);
     if (card) bubble.append(card);
-    else {
+    if (actions?.suggestions?.length) {
+      const row = element('div', 'suggestion-actions');
+      row.dataset.live = 'suggestions';
+      for (const suggestion of actions.suggestions) {
+        const button = element('button', '', `Usar “${suggestion.name}”`);
+        button.type = 'button';
+        button.addEventListener('click', () => {
+          row.querySelectorAll('button').forEach((item) => { item.disabled = true; });
+          actions.onPick(suggestion);
+        });
+        row.append(button);
+      }
+      bubble.append(row);
+    }
+    if (!card) {
       const time = element('time', 'message-time', formatTime(entry.at));
       time.dateTime = new Date(entry.at).toISOString();
       content.append(time);

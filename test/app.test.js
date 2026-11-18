@@ -494,3 +494,30 @@ test('a date in the message sets the transaction date; future dates are refused'
   assert.equal(budget.transactions.length, 2);
   await app.close();
 });
+
+test('an unknown category returns suggestions; choosing one previews with that category', async () => {
+  const app = await startApp();
+  const browser = await signedIn(app, 'ana', ANA_CONNECTION);
+  const typo = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 40 no mercado categoria alimetação' });
+  assert.equal(typo.status, 400);
+  assert.deepEqual(typo.body.suggestions, [{ id: 'cat-food', name: 'Alimentação' }]);
+  assert.match(typo.body.error, /Você quis dizer: Alimentação\?/);
+
+  const chosen = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 40 no mercado categoria alimetação', categoryId: 'cat-food' });
+  assert.equal(chosen.status, 200);
+  assert.equal(chosen.body.preview.category.name, 'Alimentação');
+  assert.equal(chosen.body.preview.transaction.category, 'cat-food');
+
+  const noAccent = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 40 no mercado categoria alimentacao' });
+  assert.equal(noAccent.body.preview.category.name, 'Alimentação');
+
+  const query = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Quanto tenho em Alimetação?' });
+  assert.equal(query.status, 400);
+  assert.equal(query.body.code, 'CATEGORY_NOT_FOUND');
+  assert.deepEqual(query.body.suggestions, [{ id: 'cat-food', name: 'Alimentação' }]);
+  const queryChosen = await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Quanto tenho em Alimetação?', categoryId: 'cat-food' });
+  assert.equal(queryChosen.body.available, 12345);
+
+  assert.equal((await browser.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'Gastei 4 x categoria alimentação', categoryId: '../x' })).status, 400);
+  await app.close();
+});

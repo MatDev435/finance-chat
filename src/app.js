@@ -61,6 +61,12 @@ function unsyncedText(preview, account) {
   return `Movimentação registrada, mas a sincronização com o servidor Actual falhou.\n\n${typeText(preview.command.type)} de ${moneyText(preview.command.amount)} para ${preview.command.description} na conta ${account.name}.\nEla será enviada na próxima sincronização. Não envie de novo.`;
 }
 
+function optionalCategoryId(value) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string' || !ACCOUNT_ID_PATTERN.test(value)) throw inputError('Categoria inválida.', 'categoryId');
+  return value;
+}
+
 function accountIdFrom(value) {
   if (typeof value !== 'string' || !ACCOUNT_ID_PATTERN.test(value)) throw inputError('Selecione uma conta válida.', 'accountId');
   return value;
@@ -239,13 +245,14 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
       async handler(ctx) {
         const accountId = accountIdFrom(ctx.body.accountId);
         const { message } = ctx.body;
+        const categoryId = optionalCategoryId(ctx.body.categoryId);
         if (typeof message === 'string' && message.length > MAX_MESSAGE_LENGTH) throw inputError(`A mensagem pode ter no máximo ${MAX_MESSAGE_LENGTH} caracteres.`, 'message');
         const intent = parseMessage(message);
         const connection = requireConnection(ctx.user.id);
 
         if (intent.kind === 'category-available' || intent.kind === 'category-can-spend') {
           const month = currentLocalDate().slice(0, 7);
-          const availability = await actual.run(connection, (api) => getSynchronizedCategoryAvailability(api, intent.category, month));
+          const availability = await actual.run(connection, (api) => getSynchronizedCategoryAvailability(api, intent.category, month, categoryId));
           const spending = intent.kind === 'category-can-spend' ? evaluateCategorySpending(availability.available, amountToCents(intent.amount)) : null;
           const requested = spending?.requested ?? null;
           const categoryMessage = requested === null
@@ -268,7 +275,7 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
 
         const date = resolveDate(intent.command.when, currentLocalDate());
         const { validation, mapped, key } = await actual.run(connection, async (api, openKey) => ({
-          ...(await prepareTransaction(api, { accountId, command: intent.command, date })),
+          ...(await prepareTransaction(api, { accountId, command: intent.command, date, categoryId })),
           key: openKey,
         }));
         const preview = {
@@ -331,6 +338,7 @@ export function createApp({ config, auth, store, actual, pending, publicDir, log
       const body = { ok: false, code: error.code, error: error.message };
       if (error.field) body.field = error.field;
       if (error.reason) body.reason = error.reason;
+      if (Array.isArray(error.suggestions)) body.suggestions = error.suggestions;
       return sendJson(response, status, body);
     }
     log.error('[http] unexpected error', error);

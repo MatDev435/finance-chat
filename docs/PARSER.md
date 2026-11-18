@@ -47,6 +47,21 @@ Resultado relevante:
 
 Sem o marcador, `notes` não é adicionado. `description` continua sendo o beneficiário e vira `payee_name`; `notes` vira o campo `notes` do Actual.
 
+## Categorias
+
+A categoria é procurada pelo nome, nesta ordem:
+
+1. mesmo nome, ignorando maiúsculas e espaços extras;
+2. mesmas letras ignorando acentos (`alimentacao` → `Alimentação`), só quando existe **uma única** categoria assim;
+3. se nada corresponder, o Finance Chat sugere até 3 categorias parecidas (distância de edição de Levenshtein, com prioridade para prefixos e trechos do nome). Categorias ocultas não são sugeridas.
+
+```text
+Gastei 12 no Uber categoria transprte
+→ A categoria 'Transprte' não existe no Actual Budget. Você quis dizer: Transporte?   [Usar “Transporte”]
+```
+
+O botão repete a mesma mensagem com a categoria escolhida, e a movimentação ainda passa pela prévia normal. O mesmo vale para as perguntas de saldo (`Quanto tenho em Alimetação?`). Tudo é feito por regras fixas, sem IA.
+
 ## Datas
 
 Sem data, a movimentação usa o dia de hoje (no fuso `APP_TIME_ZONE`). Para outra data, escreva uma destas expressões **antes do comando** ou **no fim da categoria** (antes de `notas`):

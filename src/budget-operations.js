@@ -15,10 +15,10 @@ export async function listChatAccounts(api) {
 }
 
 /** Read-only: validates the command for the selected account and maps it. Writes nothing. */
-export async function prepareTransaction(api, { accountId, command, date }) {
+export async function prepareTransaction(api, { accountId, command, date, categoryId }) {
   await api.sync();
   const [accounts, categories] = await Promise.all([api.getAccounts(), api.getCategories()]);
-  const validation = validateCommand(command, { accounts, categories, accountId });
+  const validation = validateCommand(command, { accounts, categories, accountId, categoryId });
   return { validation, mapped: toActualImport(validation, date) };
 }
 

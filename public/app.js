@@ -26,7 +26,10 @@ const state = {
   settingsOpen: false,
   history: null,
   busy: new Set(),
-  /** history entry id → { accountId, pendingId }. Memory only: never persisted. */
+  /**
+   * history entry id → live action for that message: { type: 'preview', accountId, pendingId }
+   * or { type: 'suggestions', accountId, message, suggestions }. Memory only: never persisted.
+   */
   live: new Map(),
 };
 
@@ -310,7 +313,7 @@ function renderChat() {
   $('#chat-avatar').textContent = initials(account.name);
   chatView.render(state.history.load(account.id), {
     greeting: GREETING,
-    liveActions: (entry) => (entry.kind === 'preview' && entry.status === 'pending' && state.live.has(entry.id) ? previewActions(account.id, entry.id) : undefined),
+    liveActions: (entry) => liveActionsFor(account.id, entry),
   });
   syncBusyIndicators();
 }
@@ -365,19 +368,32 @@ function isVisible(accountId) {
   return app.dataset.screen === 'workspace' && state.selectedId === accountId && !state.settingsOpen;
 }
 
+/** Buttons shown on a message while its action is still possible (never for restored history). */
+function liveActionsFor(accountId, entry) {
+  const item = state.live.get(entry.id);
+  if (!item || item.accountId !== accountId) return undefined;
+  if (item.type === 'preview' && entry.kind === 'preview' && entry.status === 'pending') return previewActions(accountId, entry.id);
+  if (item.type === 'suggestions') return { suggestions: item.suggestions, onPick: (category) => pickSuggestion(accountId, entry.id, category) };
+  return undefined;
+}
+
 /** Stores the entry in this chat's local history and shows it if the chat is open. */
-function addEntry(accountId, entry, { live = false } = {}) {
+function addEntry(accountId, entry) {
   const full = { id: newEntryId(), at: Date.now(), ...entry };
   state.history?.append(accountId, full);
-  if (isVisible(accountId)) chatView.append(full, { actions: live ? previewActions(accountId, full.id) : undefined });
+  if (isVisible(accountId)) chatView.append(full, { actions: liveActionsFor(accountId, full) });
   renderAccountList();
   return full;
 }
 
-/** The server keeps one pending preview per chat: older cards stop being actionable. */
-function retireLivePreviews(accountId) {
-  for (const [entryId, item] of state.live) if (item.accountId === accountId) state.live.delete(entryId);
-  if (isVisible(accountId)) $('#conversation').querySelectorAll('.message-actions').forEach((row) => row.remove());
+/**
+ * Removes live actions of these types from a chat. The server keeps one pending
+ * preview per chat, so a new message makes older previews and suggestions stale.
+ */
+function retireLiveActions(accountId, types) {
+  for (const [entryId, item] of state.live) if (item.accountId === accountId && types.includes(item.type)) state.live.delete(entryId);
+  if (!isVisible(accountId)) return;
+  for (const type of types) $('#conversation').querySelectorAll(`[data-live="${type}"]`).forEach((row) => row.remove());
 }
 
 function updateAccountName(account) {
@@ -397,17 +413,17 @@ function handleChatError(accountId, error, text = error.message) {
   if (error.code === 'CONNECTION_REQUIRED' || error.code === 'CONNECTION_UNREADABLE') openSetup({ message: error.message });
 }
 
-$('#command-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const accountId = state.selectedId;
-  const text = messageInput.value.trim();
-  if (!accountId || !text || state.busy.has(accountId)) return;
-  retireLivePreviews(accountId);
-  addEntry(accountId, { role: 'user', kind: 'text', text });
-  messageInput.value = '';
+/**
+ * Sends a message of this chat. `categoryId` is set when the user picked a
+ * suggested category; `echo` is the text shown as the user's message.
+ */
+async function sendMessage(accountId, message, { categoryId, echo = message } = {}) {
+  if (state.busy.has(accountId)) return;
+  retireLiveActions(accountId, ['preview', 'suggestions']);
+  addEntry(accountId, { role: 'user', kind: 'text', text: echo });
   setBusy(accountId, true);
   try {
-    const data = await api('POST', '/api/chat/preview', { accountId, message: text });
+    const data = await api('POST', '/api/chat/preview', { accountId, message, ...(categoryId ? { categoryId } : {}) });
     if (data.kind === 'category-available') {
       addEntry(accountId, { role: 'assistant', kind: 'text', text: data.message });
     } else if (data.kind === 'category-can-spend') {
@@ -418,23 +434,45 @@ $('#command-form').addEventListener('submit', async (event) => {
     } else {
       const { preview } = data;
       const entryId = newEntryId();
-      state.live.set(entryId, { accountId, pendingId: data.pendingId });
+      state.live.set(entryId, { type: 'preview', accountId, pendingId: data.pendingId });
       addEntry(accountId, {
         id: entryId, role: 'assistant', kind: 'preview', text: PREVIEW_TEXT, status: 'pending',
         data: {
           type: preview.command.type, amount: preview.command.amount, description: preview.command.description,
           category: preview.category.name, account: preview.account.name, date: preview.transaction.date, notes: preview.command.notes,
         },
-      }, { live: true });
+      });
       updateAccountName(preview.account);
     }
   } catch (error) {
-    handleChatError(accountId, error);
+    if (error.suggestions.length) {
+      const entryId = newEntryId();
+      state.live.set(entryId, { type: 'suggestions', accountId, message, suggestions: error.suggestions });
+      addEntry(accountId, { id: entryId, role: 'assistant', kind: 'error', text: error.message });
+    } else {
+      handleChatError(accountId, error);
+    }
   } finally {
     setBusy(accountId, false);
     if (isVisible(accountId)) focusComposer();
   }
+}
+
+$('#command-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const accountId = state.selectedId;
+  const text = messageInput.value.trim();
+  if (!accountId || !text || state.busy.has(accountId)) return;
+  messageInput.value = '';
+  sendMessage(accountId, text);
 });
+
+/** Repeats the original message with the category the user picked. */
+function pickSuggestion(accountId, entryId, category) {
+  const item = state.live.get(entryId);
+  if (!item || state.busy.has(accountId)) return;
+  sendMessage(accountId, item.message, { categoryId: category.id, echo: `Usar a categoria “${category.name}”` });
+}
 
 function previewActions(accountId, entryId) {
   return {

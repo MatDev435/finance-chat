@@ -68,7 +68,9 @@ Sincroniza e devolve as contas abertas e dentro do orçamento: `{ accounts: [{ i
 
 ### `POST /api/chat/preview`
 
-`{ accountId, message }` (mensagem com até 500 caracteres). Não grava nada.
+`{ accountId, message, categoryId? }` (mensagem com até 500 caracteres). Não grava nada.
+
+`categoryId` é opcional: é enviado quando o usuário escolhe uma das sugestões de categoria. Ele substitui a categoria escrita na mensagem, depois de validado contra o orçamento. Categoria desconhecida devolve `400` (`VALIDATION_ERROR` para transações, `CATEGORY_NOT_FOUND` para perguntas de saldo) com `suggestions: [{ id, name }]` (até 3).
 
 - Transação: `{ kind: "transaction", pendingId, expiresAt, preview: { command, account, category, transaction, text } }`.
 - `Quanto tenho em X?`: `{ kind: "category-available", message, category, month, available }`.

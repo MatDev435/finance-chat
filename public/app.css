@@ -178,6 +178,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .message-actions button, .send-button { min-height: 2.75rem; color: #fff; background: linear-gradient(135deg, #8a32f5, #5d1ec8); border: 1px solid #a064ff; border-radius: .65rem; box-shadow: 0 .35rem 1rem #48168b66; transition: transform .15s ease, filter .15s ease; }
 .message-actions button:hover, .send-button:hover { filter: brightness(1.15); transform: translateY(-1px); } .message-actions .secondary { color: #ff6b91; background: transparent; border-color: #c63866; box-shadow: none; }
 .message-actions button.is-loading { opacity: .78; cursor: wait; }
+.suggestion-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .8rem; }
+.suggestion-actions button { min-height: 2.4rem; padding: .35rem .95rem; color: #f4f1ff; background: #241a40; border: 1px solid #7a48d6; border-radius: 99px; font-size: .88rem; transition: filter .15s ease; }
+.suggestion-actions button:hover:not(:disabled) { filter: brightness(1.2); }
+.suggestion-actions button:disabled { opacity: .6; }
 .button-spinner { display: inline-block; width: .9rem; height: .9rem; margin-right: .35rem; vertical-align: -.1rem; border: 2px solid #ffffff66; border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
 .composer { display: flex; align-items: center; gap: .7rem; margin: 1rem .5rem .45rem; padding: .3rem .45rem .3rem .8rem; background: linear-gradient(145deg, #15152a, #101022); border: 1px solid #282548; border-radius: .9rem; }
 .composer-icon { color: var(--purple-light); font-size: 1.5rem; } .composer input { flex: 1; min-width: 0; color: #f7f3ff; background: transparent; border: 0; outline: 0; padding: .75rem .2rem; } .composer input::placeholder { color: #9490b0; opacity: 1; }
