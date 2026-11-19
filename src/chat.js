@@ -259,15 +259,17 @@ export function createChat({ actual, pending, undo, conversations, aiStore, inte
     const notes = [];
     const { operations } = plan;
 
-    if (draft && plan.cancelDraft) {
-      conversations.clearDraft(userId, accountId);
-      if (!operations.length) return textAnswer(text.DRAFT_DISCARDED);
-      notes.push(text.DRAFT_DISCARDED);
+    const NO_DRAFT_TEXT = 'Não há movimentações incompletas nesta conversa (elas expiram em 15 minutos). Envie a mensagem completa novamente.';
+    if (plan.cancelDraft) {
+      if (draft) conversations.clearDraft(userId, accountId);
+      if (!operations.length) return textAnswer(draft ? text.DRAFT_DISCARDED : NO_DRAFT_TEXT);
+      if (draft) notes.push(text.DRAFT_DISCARDED);
     } else if (plan.draftUpdates.length) {
       if (!draft) {
-        if (!operations.length) return textAnswer('Não há movimentações incompletas nesta conversa (elas expiram em 15 minutos). Envie a mensagem completa novamente.');
+        if (!operations.length) return textAnswer(NO_DRAFT_TEXT);
       } else {
-        if (operations.length) notes.push('Completei as movimentações pendentes. Envie as outras perguntas ou lançamentos em uma nova mensagem.');
+        // While completing a draft, nothing else in the same message is run.
+        if (operations.length) notes.push('Usei sua resposta nas movimentações pendentes. Envie as outras perguntas ou lançamentos em uma nova mensagem.');
         return continueDraft({ userId, accountId, draft, updates: plan.draftUpdates, connection, notes });
       }
     }
