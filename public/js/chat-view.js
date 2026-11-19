@@ -112,8 +112,30 @@ function spendingCard(data) {
   return card;
 }
 
-export function createChatView({ conversation, typingIndicator }) {
+/** What a screen reader hears for a new assistant message: its text plus the card's headline. */
+export function announcementFor(entry) {
+  if (!entry || entry.role !== 'assistant') return '';
+  const text = String(entry.text || '');
+  if (entry.kind === 'preview' && entry.data) {
+    return `${text} ${entry.data.type === 'income' ? 'Receita' : 'Despesa'} de ${formatCurrency(entry.data.amount)}.`;
+  }
+  return text;
+}
+
+/**
+ * `announcer` is a small polite live region outside the conversation. The
+ * conversation itself is not a live region: it is rebuilt whenever a chat is
+ * opened, and a live region there made screen readers (TalkBack) read the
+ * whole history again on every open. Only new assistant messages are spoken.
+ */
+export function createChatView({ conversation, typingIndicator, announcer }) {
   let lastDay = null;
+
+  function announce(entry) {
+    const text = announcementFor(entry);
+    // A new node each time, so a repeated text ("Movimentação cancelada.") is spoken again.
+    if (text && announcer) announcer.replaceChildren(element('span', '', text));
+  }
 
   function scrollToBottom() {
     requestAnimationFrame(() => {
@@ -189,7 +211,10 @@ export function createChatView({ conversation, typingIndicator }) {
 
     row.append(content);
     conversation.append(row);
-    if (!restored) scrollToBottom();
+    if (!restored) {
+      scrollToBottom();
+      announce(entry);
+    }
     return { row, bubble, card };
   }
 

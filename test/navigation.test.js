@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { entrySummary, initials, reconcileSelection, resolveInitialAccount, viewFor } from '../public/js/navigation.js';
+import { entrySummary, initials, reconcileSelection, resolveInitialAccount, sidebarMotion, viewFor } from '../public/js/navigation.js';
 
 const accounts = [{ id: 'acc-nubank', name: 'Nubank' }, { id: 'acc-inter', name: 'Inter' }, { id: 'acc-wallet', name: 'Carteira' }];
 
@@ -43,4 +43,22 @@ test('builds avatar initials and list summaries', () => {
   assert.equal(entrySummary({ role: 'user', kind: 'text', text: 'Gastei 40 no mercado\nlinha 2' }), 'Você: Gastei 40 no mercado');
   assert.match(entrySummary({ role: 'assistant', kind: 'preview', status: 'confirmed', data: { type: 'expense', amount: 40 } }), /^Despesa de R\$\s?40,00 registrada$/);
   assert.equal(entrySummary(null), '');
+});
+
+test('the account list slides only on mobile, only when entering or leaving it', () => {
+  const motion = (from, to, extra = {}) => sidebarMotion({ mobile: true, reducedMotion: false, from, to, ...extra });
+  assert.equal(motion('chat', 'list'), 'sidebar-in');
+  assert.equal(motion('settings', 'list'), 'sidebar-in');
+  assert.equal(motion('list', 'chat'), 'sidebar-out');
+  assert.equal(motion('list', 'settings'), 'sidebar-out');
+  assert.equal(motion('chat', 'settings'), null);
+  assert.equal(motion('list', 'list'), null);
+  assert.equal(motion(undefined, 'list'), null, 'first render: nothing to animate');
+});
+
+test('no slide on desktop or with reduced motion', () => {
+  assert.equal(sidebarMotion({ mobile: false, reducedMotion: false, from: 'chat', to: 'empty' }), null);
+  assert.equal(sidebarMotion({ mobile: false, reducedMotion: false, from: 'settings', to: 'chat' }), null);
+  assert.equal(sidebarMotion({ mobile: true, reducedMotion: true, from: 'chat', to: 'list' }), null);
+  assert.equal(sidebarMotion({ mobile: true, reducedMotion: true, from: 'list', to: 'chat' }), null);
 });

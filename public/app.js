@@ -1,7 +1,7 @@
 import { api, onSessionExpired } from './js/api.js';
 import { createChatView, formatTime, setPreviewStatus } from './js/chat-view.js';
 import { browserStorage, createHistory } from './js/history.js';
-import { entrySummary, initials, reconcileSelection, resolveInitialAccount, viewFor } from './js/navigation.js';
+import { entrySummary, initials, reconcileSelection, resolveInitialAccount, sidebarMotion, viewFor } from './js/navigation.js';
 import { createSettings } from './js/settings.js';
 import { createSetup } from './js/setup.js';
 
@@ -11,6 +11,7 @@ const workspace = $('[data-screen-name="workspace"]');
 const messageInput = $('#message');
 const previewButton = $('#preview-button');
 const mobileQuery = window.matchMedia('(max-width: 700px)');
+const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
 /** Auto-focus only on large screens; on phones the user taps the field (accessibility decision). */
 function focusComposer() {
   if (!mobileQuery.matches && !$('#chat').hidden) messageInput.focus({ preventScroll: true });
@@ -34,7 +35,7 @@ const state = {
   live: new Map(),
 };
 
-const chatView = createChatView({ conversation: $('#conversation'), typingIndicator: $('#typing-indicator') });
+const chatView = createChatView({ conversation: $('#conversation'), typingIndicator: $('#typing-indicator'), announcer: $('#chat-announcer') });
 let entryCounter = 0;
 const newEntryId = () => `m${Date.now().toString(36)}${(entryCounter += 1).toString(36)}`;
 
@@ -155,7 +156,7 @@ function openSettings() {
   state.settingsOpen = true;
   settings.open({ me: state.me, accounts: state.accounts });
   pushMobileState('settings');
-  renderView();
+  renderView({ navigated: true });
 }
 
 /* ---------- Menu ---------- */
@@ -205,47 +206,62 @@ function setAccountsStatus(text, error = false) {
 
 function renderAccountList() {
   const list = $('#account-list');
-  list.replaceChildren();
   if (!state.accounts.length) {
+    list.replaceChildren();
     const empty = document.createElement('p');
     empty.className = 'list-empty';
     empty.textContent = 'Nenhuma conta aberta encontrada no Actual Budget. Crie uma conta no Actual e depois atualize a lista.';
     list.append(empty);
     return;
   }
-  for (const account of state.accounts) {
-    const last = state.history?.last(account.id);
-    const item = document.createElement('button');
-    item.type = 'button';
-    item.className = 'account-item';
-    item.dataset.accountId = account.id;
-    item.setAttribute('aria-current', String(account.id === state.selectedId));
-
-    const avatar = document.createElement('span');
-    avatar.className = 'avatar account-avatar';
-    avatar.setAttribute('aria-hidden', 'true');
-    avatar.textContent = initials(account.name);
-
-    const copy = document.createElement('span');
-    copy.className = 'account-copy';
-    const name = document.createElement('strong');
-    name.textContent = account.name;
-    const preview = document.createElement('span');
-    preview.className = 'account-preview';
-    preview.textContent = entrySummary(last) || 'Nenhuma mensagem ainda';
-    copy.append(name, preview);
-
-    const meta = document.createElement('span');
-    meta.className = 'account-meta';
-    if (last) meta.append(Object.assign(document.createElement('time'), { textContent: formatTime(last.at) }));
-    if (account.id === state.me?.settings.defaultAccountId) {
-      meta.append(Object.assign(document.createElement('span'), { className: 'default-badge', textContent: 'Padrão' }));
-    }
-
-    item.append(avatar, copy, meta);
-    item.addEventListener('click', () => selectAccount(account.id));
-    list.append(item);
+  const items = state.accounts.map(accountItem);
+  const current = [...list.children];
+  const sameAccounts = current.length === items.length && items.every((item, index) => current[index].dataset.accountId === item.dataset.accountId);
+  if (!sameAccounts) {
+    list.replaceChildren(...items);
+    return;
   }
+  // Same accounts in the same order: update the existing buttons in place. Rebuilding
+  // them would drop keyboard and screen reader focus (TalkBack) from the list whenever
+  // a message arrives or the list refreshes.
+  items.forEach((item, index) => {
+    const existing = current[index];
+    if (existing.getAttribute('aria-current') !== item.getAttribute('aria-current')) existing.setAttribute('aria-current', item.getAttribute('aria-current'));
+    if (existing.innerHTML !== item.innerHTML) existing.replaceChildren(...item.childNodes);
+  });
+}
+
+function accountItem(account) {
+  const last = state.history?.last(account.id);
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.className = 'account-item';
+  item.dataset.accountId = account.id;
+  item.setAttribute('aria-current', String(account.id === state.selectedId));
+
+  const avatar = document.createElement('span');
+  avatar.className = 'avatar account-avatar';
+  avatar.setAttribute('aria-hidden', 'true');
+  avatar.textContent = initials(account.name);
+
+  const copy = document.createElement('span');
+  copy.className = 'account-copy';
+  const name = document.createElement('strong');
+  name.textContent = account.name;
+  const preview = document.createElement('span');
+  preview.className = 'account-preview';
+  preview.textContent = entrySummary(last) || 'Nenhuma mensagem ainda';
+  copy.append(name, preview);
+
+  const meta = document.createElement('span');
+  meta.className = 'account-meta';
+  if (last) meta.append(Object.assign(document.createElement('time'), { textContent: formatTime(last.at) }));
+  if (account.id === state.me?.settings.defaultAccountId) {
+    meta.append(Object.assign(document.createElement('span'), { className: 'default-badge', textContent: 'Padrão' }));
+  }
+
+  item.append(avatar, copy, meta);
+  return item;
 }
 
 async function loadAccounts({ initial = false } = {}) {
@@ -297,14 +313,70 @@ function pushMobileState(view) {
   if (mobileQuery.matches) window.history.pushState({ financeChat: view }, '');
 }
 
-function renderView() {
+/**
+ * Shows the pane for the current state. `navigated` marks a change the user asked
+ * for (open a chat, go back, open settings): only then the mobile account list
+ * slides and focus is moved to the new pane. `focusAccountId` is the account to
+ * focus when going back to the list.
+ */
+function renderView({ navigated = false, focusAccountId = null } = {}) {
+  const from = workspace.dataset.view;
   const view = viewFor({ mobile: mobileQuery.matches, selectedId: state.selectedId, settingsOpen: state.settingsOpen });
   workspace.dataset.view = view;
   app.dataset.view = view;
-  $('#settings-panel').hidden = view !== 'settings';
-  $('#chat').hidden = view !== 'chat';
-  $('#empty-chat').hidden = view !== 'empty';
+  // The list view (mobile only) hides the whole main pane with CSS, so its content
+  // is kept as it was: the chat stays visible under the list while it slides in.
+  if (view !== 'list') {
+    $('#settings-panel').hidden = view !== 'settings';
+    $('#chat').hidden = view !== 'chat';
+    $('#empty-chat').hidden = view !== 'empty';
+  }
   if (view === 'chat') renderChat();
+  if (!navigated) return;
+  animateSidebar(sidebarMotion({ mobile: mobileQuery.matches, reducedMotion: reducedMotionQuery.matches, from, to: view }));
+  moveFocusTo(view, focusAccountId);
+}
+
+const SIDEBAR_MOTION_MS = 280; // the longest slide in app.css (in: 280ms, out: 220ms)
+let sidebarMotionTimer = null;
+
+/**
+ * Purely visual. The state, the visible pane and the focus are already final when
+ * it starts; the pane that is leaving stays painted on top (or below) for the
+ * length of the slide, but `inert` takes it out of the accessibility tree and of
+ * touch/keyboard interaction at once, so screen readers never wait for it.
+ */
+function animateSidebar(motion) {
+  clearTimeout(sidebarMotionTimer);
+  const leaving = workspace.querySelector('[data-leaving]');
+  if (leaving) {
+    leaving.inert = false;
+    leaving.removeAttribute('aria-hidden');
+    delete leaving.dataset.leaving;
+  }
+  delete workspace.dataset.motion;
+  if (!motion) return;
+  const pane = $(motion === 'sidebar-in' ? '.main-pane' : '.sidebar');
+  pane.inert = true;
+  pane.setAttribute('aria-hidden', 'true'); // same as inert, for older Android WebViews
+  pane.dataset.leaving = '';
+  workspace.dataset.motion = motion;
+  sidebarMotionTimer = setTimeout(() => animateSidebar(null), SIDEBAR_MOTION_MS);
+}
+
+/** Where focus goes after a navigation, so it is not left on a button that just disappeared. */
+function moveFocusTo(view, focusAccountId) {
+  const active = document.activeElement;
+  const lost = !active || active === document.body || active.closest('[inert]') || !active.getClientRects().length;
+  if (!lost) return;
+  let target = null;
+  if (view === 'list') {
+    target = (focusAccountId && $('#account-list').querySelector(`[data-account-id="${CSS.escape(focusAccountId)}"]`))
+      || $('#account-list .account-item') || $('#sync-accounts');
+  }
+  if (view === 'chat') target = $('#chat-title');
+  if (view === 'settings') target = $('#settings-title');
+  target?.focus({ preventScroll: true });
 }
 
 function renderChat() {
@@ -326,7 +398,7 @@ function selectAccount(accountId) {
   state.settingsOpen = false;
   if (wasInList) pushMobileState('chat');
   renderAccountList();
-  renderView();
+  renderView({ navigated: true });
   focusComposer();
 }
 
@@ -340,15 +412,20 @@ function goBack() {
 }
 
 function stepBack() {
+  const leftAccountId = state.selectedId;
   if (state.settingsOpen) state.settingsOpen = false;
   else if (mobileQuery.matches) state.selectedId = null;
   renderAccountList();
-  renderView();
+  renderView({ navigated: true, focusAccountId: leftAccountId });
 }
 
 window.addEventListener('popstate', () => { if (app.dataset.screen === 'workspace') stepBack(); });
 $('#back-to-list').addEventListener('click', () => goBack());
 $('#sync-accounts').addEventListener('click', () => loadAccounts());
+$('#account-list').addEventListener('click', (event) => {
+  const item = event.target.closest('.account-item');
+  if (item) selectAccount(item.dataset.accountId);
+});
 mobileQuery.addEventListener('change', () => { if (app.dataset.screen === 'workspace') renderView(); });
 
 /* ---------- Chat ---------- */
