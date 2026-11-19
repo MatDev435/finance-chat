@@ -45,3 +45,15 @@ export function entrySummary(entry) {
   const firstLine = String(entry.text || '').split('\n')[0];
   return entry.role === 'user' ? `Você: ${firstLine}` : firstLine;
 }
+
+/**
+ * Slide of the account list on mobile when the visible pane changes: the list
+ * enters from the left ('sidebar-in') or leaves to the left ('sidebar-out').
+ * Desktop always shows the list, so it never animates; reduced motion disables it.
+ */
+export function sidebarMotion({ mobile, reducedMotion, from, to }) {
+  if (!mobile || reducedMotion || !from || from === to) return null;
+  if (to === 'list') return 'sidebar-in';
+  if (from === 'list') return 'sidebar-out';
+  return null;
+}

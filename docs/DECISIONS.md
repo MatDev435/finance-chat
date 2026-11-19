@@ -52,6 +52,10 @@ Como o servidor Actual é informado pelo usuário, cadastro aberto permitiria qu
 
 O histórico das conversas é apenas visual: até 10 mensagens por conversa no `localStorage`, separadas por usuário e ID da conta. Ele não vai para o servidor e não é usado em operações financeiras. A fonte oficial é o Actual. O logout apaga o histórico do usuário naquele navegador.
 
+## Conversa sem `aria-live` e foco ao trocar de painel
+
+A conversa é reconstruída sempre que um chat é aberto. Como região `aria-live`, ela fazia leitores de tela (TalkBack) lerem todo o histórico a cada abertura. Agora só as respostas novas do Finance Chat são anunciadas, por uma região `role="status"` separada (`#chat-announcer`). No mobile, ao trocar de painel, o foco vai para o título da conversa ou para a conta de onde o usuário voltou, em vez de ficar num botão que sumiu. A animação da lista de contas é apenas visual: o painel que sai fica `inert` durante o deslize e nada espera por ela.
+
 ## Sem CORS
 
 Com autenticação por cookie, liberar outra origem exigiria `SameSite=None` e enfraqueceria a proteção contra CSRF. O frontend é sempre servido pelo próprio Finance Chat.

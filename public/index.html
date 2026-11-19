@@ -146,12 +146,13 @@
               <button class="back-button" id="back-to-list" type="button" aria-label="Voltar para as contas"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
               <div class="avatar account-avatar" id="chat-avatar" aria-hidden="true"></div>
               <div class="chat-title">
-                <h2 id="chat-title"></h2>
+                <h2 id="chat-title" tabindex="-1"></h2>
                 <p>Movimentações registradas nesta conta</p>
               </div>
             </header>
-            <div id="conversation" class="conversation" aria-live="polite"></div>
+            <div id="conversation" class="conversation"></div>
           </section>
+          <p id="chat-announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
 
           <div id="typing-indicator" class="typing-indicator" role="status" aria-live="polite" aria-label="Finance Chat está digitando" hidden>
             <div class="typing-avatar" aria-hidden="true"><img src="/brand/finance-chat-symbol.svg" alt="" width="32" height="32"></div>
@@ -170,7 +171,7 @@
         <section class="settings-panel" id="settings-panel" aria-labelledby="settings-title" hidden>
           <header class="settings-header">
             <button class="back-button" id="settings-back" type="button" aria-label="Fechar configurações"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-            <h2 id="settings-title">Configurações</h2>
+            <h2 id="settings-title" tabindex="-1">Configurações</h2>
           </header>
           <div class="settings-body">
             <form class="panel-card stack-form" id="default-account-form">
