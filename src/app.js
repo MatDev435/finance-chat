@@ -12,6 +12,9 @@ import { createRateLimiter } from './rate-limit.js';
 import { currentLocalDate } from './transaction-mapping.js';
 import { createUndoStore } from './undo.js';
 import { ACCOUNT_ID_PATTERN, inputError, resolveConnectionInput } from './user-store.js';
+import { AI_MODELS, DEFAULT_MODEL } from './ai/models.js';
+import { perMillionText, priceTableAt } from './ai/pricing.js';
+import { resolveAiSettingsInput } from './ai/store.js';
 
 export const ACCESS_COOKIE = 'fc_access';
 export const REFRESH_COOKIE = 'fc_refresh';
@@ -89,7 +92,19 @@ function accountIdFrom(value) {
   return value;
 }
 
-export function createApp({ config, auth, store, actual, pending, undo = createUndoStore(), publicDir, log = console }) {
+/** Models offered in the settings, with the prices of the table in force (USD per 1M tokens). */
+function publicModels() {
+  const table = priceTableAt(Date.now());
+  return AI_MODELS.map(({ id, name, description }) => {
+    const price = table?.models[id];
+    return {
+      id, name, description,
+      prices: price ? { input: perMillionText(price.input), cachedInput: perMillionText(price.cachedInput), output: perMillionText(price.output) } : null,
+    };
+  });
+}
+
+export function createApp({ config, auth, store, aiStore, actual, pending, undo = createUndoStore(), publicDir, log = console }) {
   const limiters = {
     loginIp: createRateLimiter({ limit: 20, windowMs: 15 * MINUTE }),
     loginUser: createRateLimiter({ limit: 5, windowMs: 15 * MINUTE }),
@@ -256,7 +271,29 @@ export function createApp({ config, auth, store, actual, pending, undo = createU
         user: ctx.user,
         connection: store.connectionSummary(ctx.user.id),
         settings: store.getSettings(ctx.user.id),
+        ai: aiStore.settings(ctx.user.id),
       }),
+    },
+
+    'GET /api/ai': {
+      handler(ctx) {
+        const table = priceTableAt(Date.now());
+        return sendJson(ctx.response, 200, {
+          ok: true,
+          settings: aiStore.settings(ctx.user.id),
+          models: publicModels(),
+          defaultModel: DEFAULT_MODEL,
+          pricing: table ? { version: table.version, source: table.source } : null,
+          usage: aiStore.usageSummary(ctx.user.id),
+        });
+      },
+    },
+
+    'PUT /api/ai/settings': {
+      handler(ctx) {
+        const settings = aiStore.update(ctx.user.id, resolveAiSettingsInput(ctx.body));
+        return sendJson(ctx.response, 200, { ok: true, settings });
+      },
     },
 
     'POST /api/connection/test': {

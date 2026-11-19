@@ -9,7 +9,7 @@ import { MIGRATIONS, migrate, openDatabase } from '../src/db.js';
 test('creates the schema and records the migration version', () => {
   const db = openDatabase(':memory:');
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").pluck().all();
-  assert.deepEqual(tables, ['actual_connections', 'sessions', 'user_settings', 'users']);
+  assert.deepEqual(tables, ['actual_connections', 'ai_settings', 'ai_usage', 'sessions', 'user_settings', 'users']);
   assert.equal(db.pragma('user_version', { simple: true }), MIGRATIONS.length);
   assert.equal(db.pragma('foreign_keys', { simple: true }), 1);
   db.close();
@@ -43,14 +43,16 @@ test('refuses a database created by a newer version', () => {
   db.close();
 });
 
-test('deleting a user cascades to sessions, connection and settings', () => {
+test('deleting a user cascades to sessions, connection, settings and AI data', () => {
   const db = openDatabase(':memory:');
   const { lastInsertRowid: userId } = db.prepare('INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)').run('ana', 'x', 1);
   db.prepare('INSERT INTO sessions (id, user_id, refresh_hash, rotated_at, created_at, expires_at) VALUES (?, ?, ?, 1, 1, 2)').run('s1', userId, 'h1');
   db.prepare("INSERT INTO actual_connections (user_id, server_url, sync_id, auth_method, server_secret, updated_at) VALUES (?, 'https://a', 'id', 'password', 'x', 1)").run(userId);
   db.prepare('INSERT INTO user_settings (user_id, default_account_id, updated_at) VALUES (?, ?, 1)').run(userId, 'acc');
+  db.prepare("INSERT INTO ai_settings (user_id, enabled, model, updated_at) VALUES (?, 1, 'gpt-6-luna', 1)").run(userId);
+  db.prepare("INSERT INTO ai_usage (user_id, created_at, local_month, purpose, model, outcome, usage_known) VALUES (?, 1, '2026-11', 'chat', 'gpt-6-luna', 'ok', 0)").run(userId);
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
-  for (const table of ['sessions', 'actual_connections', 'user_settings']) {
+  for (const table of ['sessions', 'actual_connections', 'user_settings', 'ai_settings', 'ai_usage']) {
     assert.equal(db.prepare(`SELECT COUNT(*) FROM ${table}`).pluck().get(), 0, table);
   }
   db.close();

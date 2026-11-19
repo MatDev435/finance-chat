@@ -18,10 +18,12 @@ function invalid() {
 /**
  * AES-256-GCM encryption for credentials stored in SQLite. `context` is bound
  * as additional authenticated data, so a value copied to another user or
- * field fails to decrypt instead of being silently accepted.
+ * field fails to decrypt instead of being silently accepted. `purpose` selects
+ * an independent key derived from APP_SECRET (one box per kind of secret: the
+ * Actual credentials and the OpenAI API keys never share a key).
  */
-export function createSecretBox(appSecret) {
-  const key = deriveKey(appSecret, 'actual-credentials-v1');
+export function createSecretBox(appSecret, purpose = 'actual-credentials-v1') {
+  const key = deriveKey(appSecret, purpose);
 
   return {
     seal(plaintext, context) {
