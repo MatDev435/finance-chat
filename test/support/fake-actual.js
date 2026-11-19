@@ -8,8 +8,103 @@ function apiError(code, message = code) {
   return Object.assign(new Error(message), { code });
 }
 
-export function createBudget({ accounts = [], categories = [], months = {}, encryptionPassword = null } = {}) {
-  return { accounts, categories, months, encryptionPassword, transactions: [] };
+export function createBudget({ accounts = [], categories = [], months = {}, payees = [], encryptionPassword = null } = {}) {
+  return { accounts, categories, months, payees, encryptionPassword, transactions: [] };
+}
+
+/*
+ * Minimal AQL for the transaction searches (src/search.js), mirroring what
+ * test/search-aql.test.js verifies on the real engine: split parents/parts
+ * per the "splits" option, and only the first operator of each condition
+ * object is applied (like the real compiler).
+ */
+function createQuery(table, state = { filters: [], options: {}, select: null, calculate: null, orderBy: [], limit: null }) {
+  const next = (patch) => createQuery(table, { ...state, ...patch });
+  return {
+    table,
+    state,
+    filter: (expression) => next({ filters: [...state.filters, expression] }),
+    options: (options) => next({ options: { ...state.options, ...options } }),
+    select: (fields) => next({ select: fields }),
+    calculate: (expression) => next({ calculate: expression }),
+    orderBy: (expressions) => next({ orderBy: [...state.orderBy, ...[].concat(expressions)] }),
+    limit: (limit) => next({ limit }),
+  };
+}
+
+function transactionRows(budget) {
+  const rows = [];
+  for (const t of budget.transactions) {
+    const base = {
+      id: t.id, account: t.account, date: t.date, amount: t.amount, payee: t.payee ?? null, category: t.category ?? null,
+      notes: t.notes ?? null, transfer_id: t.transfer_id ?? null, starting_balance_flag: Boolean(t.starting_balance_flag),
+      is_parent: false, is_child: false, parent_id: null,
+    };
+    if (t.subtransactions?.length) {
+      rows.push({ ...base, category: null, is_parent: true });
+      t.subtransactions.forEach((part, index) => rows.push({ ...base, id: `${t.id}/${index}`, amount: part.amount, category: part.category ?? null, is_child: true, parent_id: t.id }));
+    } else {
+      rows.push(base);
+    }
+  }
+  return rows;
+}
+
+function matchCondition(value, condition) {
+  if (Array.isArray(condition)) return condition.every((item) => matchCondition(value, item));
+  if (condition === null || typeof condition !== 'object') return condition === null ? value == null : value === condition;
+  const [operator] = Object.keys(condition);
+  const rhs = condition[operator];
+  switch (operator) {
+    case '$eq': return rhs === null ? value == null : value === rhs;
+    case '$ne': return rhs === null ? value != null : value !== rhs;
+    case '$lt': return value < rhs;
+    case '$lte': return value <= rhs;
+    case '$gt': return value > rhs;
+    case '$gte': return value >= rhs;
+    case '$oneof': return rhs.includes(value);
+    default: throw new Error(`fake AQL: unsupported operator ${operator}`);
+  }
+}
+
+function matchFilter(row, filter) {
+  return Object.entries(filter).every(([field, condition]) => {
+    if (field === '$and') return condition.every((item) => matchFilter(row, item));
+    if (field === '$or') return condition.some((item) => matchFilter(row, item));
+    return matchCondition(row[field], condition);
+  });
+}
+
+function sortKey(row, expression) {
+  if (typeof expression === 'string') return [row[expression], 'asc'];
+  if (expression.$abs) return [Math.abs(row[expression.$abs.slice(1)]), expression.$dir || 'asc'];
+  const [[field, dir]] = Object.entries(expression);
+  return [row[field], dir];
+}
+
+function runQuery(budget, query) {
+  const { state } = query;
+  if (query.table !== 'transactions') throw new Error(`fake AQL: unsupported table ${query.table}`);
+  const splits = state.options.splits || 'inline';
+  let rows = transactionRows(budget).filter((row) => (splits === 'inline' ? !row.is_parent : splits === 'none' ? !row.is_child : true));
+  rows = rows.filter((row) => state.filters.every((filter) => matchFilter(row, filter)));
+  if (state.calculate) {
+    if (state.calculate.$sum === '$amount') return { data: rows.reduce((sum, row) => sum + row.amount, 0) };
+    if (state.calculate.$count === '$id') return { data: rows.length };
+    throw new Error('fake AQL: unsupported calculate');
+  }
+  const order = state.orderBy.length ? state.orderBy : [{ date: 'desc' }];
+  rows.sort((a, b) => {
+    for (const expression of order) {
+      const [x, dir] = sortKey(a, expression);
+      const [y] = sortKey(b, expression);
+      if (x !== y) return (x < y ? -1 : 1) * (dir === 'desc' ? -1 : 1);
+    }
+    return 0;
+  });
+  if (state.limit !== null) rows = rows.slice(0, state.limit);
+  if (state.select) rows = rows.map((row) => Object.fromEntries([...new Set(['id', ...state.select])].map((field) => [field, row[field]])));
+  return { data: structuredClone(rows) };
 }
 
 export function createFakeActual(servers) {
@@ -93,8 +188,31 @@ export function createFakeActual(servers) {
       await tick();
       const budget = openBudget();
       hooks.beforeAdd?.(state);
-      for (const transaction of transactions) budget.transactions.push({ id: `tx-${nextId++}`, ...structuredClone(transaction), account: accountId });
+      for (const transaction of transactions) {
+        // Like Actual: payee_name finds or creates a payee.
+        let payee;
+        if (transaction.payee_name) {
+          payee = budget.payees.find((item) => item.name.toLowerCase() === transaction.payee_name.toLowerCase());
+          if (!payee) {
+            payee = { id: `payee-${nextId++}`, name: transaction.payee_name };
+            budget.payees.push(payee);
+          }
+        }
+        budget.transactions.push({ id: `tx-${nextId++}`, ...structuredClone(transaction), ...(payee ? { payee: payee.id } : {}), account: accountId });
+      }
       return 'ok';
+    },
+
+    async getPayees() {
+      await tick();
+      return structuredClone(openBudget().payees);
+    },
+
+    q: (table) => createQuery(table),
+
+    async aqlQuery(query) {
+      await tick();
+      return runQuery(openBudget(), query);
     },
 
     async getTransactions(accountId, startDate, endDate) {

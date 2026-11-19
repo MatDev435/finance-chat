@@ -149,3 +149,65 @@ export function spendingText(categoryName, spending) {
     ? `Sim, você pode gastar esse valor em ${categoryName}.`
     : `Não, você não tem saldo suficiente para esse gasto em ${categoryName}.`;
 }
+
+/* ---------- Transaction search ---------- */
+
+const TYPE_WORDS = { expense: ['despesa', 'despesas'], income: ['receita', 'receitas'], any: ['transação', 'transações'] };
+const ORDER_WORDS = { newest: 'mais recentes', oldest: 'mais antigas', largest: 'maiores', smallest: 'menores' };
+
+export function periodText({ from, to }) {
+  if (!from) return 'em todo o histórico';
+  if (from === to) return `em ${dateText(from)}`;
+  return `de ${dateText(from)} a ${dateText(to)}`;
+}
+
+/** " com McDonald's em Alimentação entre R$ 10,00 e R$ 50,00" */
+export function searchFiltersText({ type, payees, category, minAmount, maxAmount }) {
+  let filters = '';
+  if (payees?.length) filters += ` ${type === 'income' ? 'de' : 'com'} ${payees.join(', ')}`;
+  if (category) filters += ` em ${category}`;
+  if (minAmount !== null && maxAmount !== null) filters += ` entre ${moneyText(minAmount)} e ${moneyText(maxAmount)}`;
+  else if (minAmount !== null) filters += ` a partir de ${moneyText(minAmount)}`;
+  else if (maxAmount !== null) filters += ` de até ${moneyText(maxAmount)}`;
+  return filters;
+}
+
+function transactionText(transaction, view) {
+  // The payee is not repeated when the search was already about that payee only.
+  const known = view.payees?.length === 1 && view.payees[0] === transaction.payee;
+  const payee = transaction.payee && !known ? `, com ${transaction.payee}` : '';
+  const category = transaction.category ? ` (${transaction.category})` : '';
+  return `${centsText(Math.abs(transaction.amount))} em ${dateText(transaction.date)}${payee}${category}`;
+}
+
+/** The answer to a search, from the numbers the backend computed. */
+export function searchText(view) {
+  const [one, many] = TYPE_WORDS[view.type] || TYPE_WORDS.any;
+  const filters = searchFiltersText(view);
+  const period = periodText(view);
+  const counted = `${view.count} ${view.count === 1 ? one : many}`;
+  if (view.count === 0) return `Não encontrei ${many}${filters} nesta conta ${period}.`;
+
+  if (view.result === 'sum' || view.result === 'count') {
+    const absolute = centsText(Math.abs(view.total));
+    if (view.result === 'count') {
+      return view.type === 'any'
+        ? `Encontrei ${counted}${filters} ${period}. Saldo delas: ${centsText(view.total)}.`
+        : `Encontrei ${counted}${filters} ${period}, somando ${absolute}.`;
+    }
+    if (view.type === 'expense') return `Você gastou ${absolute}${filters} ${period} (${counted}).`;
+    if (view.type === 'income') return `Você recebeu ${absolute}${filters} ${period} (${counted}).`;
+    return `O saldo das transações${filters} ${period} é ${centsText(view.total)} (${counted}).`;
+  }
+
+  const [first] = view.transactions;
+  if (view.result === 'max' || view.result === 'min') {
+    return `A ${view.result === 'max' ? 'maior' : 'menor'} ${one}${filters} ${period} foi de ${transactionText(first, view)}.`;
+  }
+  if (view.limit === 1 && (view.order === 'newest' || view.order === 'oldest')) {
+    return `A ${view.order === 'newest' ? 'última' : 'primeira'} ${one}${filters} ${view.from ? `${period} ` : ''}foi de ${transactionText(first, view)}.`;
+  }
+  const shown = view.transactions.length;
+  const more = view.count > shown ? ` Estas são as ${shown} ${ORDER_WORDS[view.order] || ORDER_WORDS.newest}:` : '';
+  return `Encontrei ${counted}${filters} ${period}.${more}`;
+}

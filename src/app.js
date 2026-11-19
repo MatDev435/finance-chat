@@ -6,6 +6,7 @@ import {
   sendJson, serializeCookie, serveStatic,
 } from './http.js';
 import { createRateLimiter } from './rate-limit.js';
+import { createSearch } from './search.js';
 import { currentLocalDate } from './transaction-mapping.js';
 import { createUndoStore } from './undo.js';
 import { ACCOUNT_ID_PATTERN, inputError, resolveConnectionInput } from './user-store.js';
@@ -94,8 +95,7 @@ function positiveInt(value, max, field) {
 
 export function createApp({
   config, auth, store, aiStore, openai, actual, pending, undo = createUndoStore(), conversations = createConversationStore(),
-  search = { answer: async () => ({ ok: true, kind: 'text', message: 'A busca de transações ainda não está disponível.' }), context: () => null },
-  publicDir, log = console,
+  search, publicDir, log = console,
 }) {
   const limiters = {
     loginIp: createRateLimiter({ limit: 20, windowMs: 15 * MINUTE }),
@@ -179,7 +179,7 @@ export function createApp({
     conversations,
     aiStore,
     interpreter,
-    search,
+    search: search ?? createSearch({ actual, conversations }),
     requireConnection,
     aiLimiter: limiters.aiChat,
     isKnownError: (code) => Boolean(ERROR_STATUS[code]),

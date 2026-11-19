@@ -56,7 +56,7 @@ export async function startApp({ allowSignup = true, extraApp = {}, anaBudget = 
     months: { [new Date().toISOString().slice(0, 7)]: { categoryGroups: [{ categories: [{ id: 'cat-food', balance: 12345 }] }] } },
     ...anaBudget,
   });
-  if (anaBudget.transactions) anaFile.transactions = anaBudget.transactions;
+  if (anaBudget.transactions) anaFile.transactions = structuredClone(anaBudget.transactions);
   const servers = {
     'https://ana.example': {
       password: 'ana-server-pass',
