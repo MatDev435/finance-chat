@@ -146,10 +146,23 @@ const settings = createSettings({
     state.me.settings = saved;
     renderAccountList();
   },
+  onAiChange: (ai) => {
+    state.me.ai = ai;
+    updateComposerHint();
+  },
   onEditConnection: () => openSetup({ editing: true }),
   onLogout: () => logout(),
   onClose: () => goBack(),
 });
+
+/** The composer invites free text when the AI mode is usable (enabled and with a key). */
+function updateComposerHint() {
+  const aiActive = Boolean(state.me?.ai?.enabled && state.me.ai.hasKey);
+  messageInput.placeholder = aiActive ? 'Escreva como preferir: lançamentos, saldos ou buscas...' : 'Digite uma movimentação...';
+  $('#privacy-text').textContent = aiActive
+    ? 'IA ativa: o que o Finance Chat não entender sozinho vai para o modelo escolhido.'
+    : 'Você pode escrever em linguagem natural, como se estivesse falando.';
+}
 
 function openSettings() {
   if (!state.me) return;
@@ -302,6 +315,7 @@ async function enterWorkspace(me) {
   state.me = me;
   state.history = createHistory(storage, me.user.id);
   showScreen('workspace');
+  updateComposerHint();
   $('#empty-chat-text').textContent = 'Cada conta do Actual Budget tem a sua conversa. As movimentações enviadas em uma conversa são registradas somente naquela conta.';
   renderView();
   await loadAccounts({ initial: true });

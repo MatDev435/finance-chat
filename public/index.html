@@ -165,7 +165,7 @@
             <input id="message" autocomplete="off" placeholder="Digite uma movimentação..." maxlength="500" required>
             <button id="preview-button" class="send-button" aria-label="Revisar movimentação" title="Revisar movimentação"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-3 14-4-5-7-2Z"/><path d="m12 14 7-9"/></svg></button>
           </form>
-          <p class="privacy-note"><span aria-hidden="true">♙</span> Você pode escrever em linguagem natural, como se estivesse falando.</p>
+          <p class="privacy-note"><span aria-hidden="true">♙</span> <span id="privacy-text">Você pode escrever em linguagem natural, como se estivesse falando.</span></p>
         </div>
 
         <section class="settings-panel" id="settings-panel" aria-labelledby="settings-title" hidden>
@@ -187,6 +187,44 @@
               <p class="form-status" id="settings-status" role="status" hidden></p>
               <div class="form-actions single"><button class="primary-button" type="submit">Salvar preferência</button></div>
             </form>
+
+            <section class="panel-card stack-form ai-settings" id="ai-settings" aria-labelledby="ai-title">
+              <div class="panel-heading">
+                <h3 id="ai-title">Inteligência artificial</h3>
+                <p>Opcional. Usa a sua conta da OpenAI para entender mensagens livres, vários lançamentos de uma vez e buscas no histórico desta conta. O que o Finance Chat já entende sozinho continua sem IA e sem custo.</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" role="switch" id="ai-enabled" aria-describedby="ai-enabled-hint">
+                <span>Usar IA para interpretar mensagens</span>
+              </label>
+              <p class="form-hint" id="ai-enabled-hint">Desativada, nenhuma mensagem é enviada à OpenAI. A chave e o modelo salvos são mantidos. Lançamentos sempre passam pela sua confirmação.</p>
+              <form id="ai-form" class="stack-form" novalidate>
+                <fieldset class="ai-fields" id="ai-fields" disabled>
+                  <legend class="sr-only">Configuração da OpenAI</legend>
+                  <label class="field">
+                    <span>Chave de API da OpenAI</span>
+                    <input name="apiKey" id="ai-key" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="512" placeholder="sk-..." aria-describedby="ai-key-hint">
+                    <small class="field-hint" id="ai-key-hint">Crie uma chave em platform.openai.com. Ela fica cifrada neste servidor e nunca é exibida de novo.</small>
+                  </label>
+                  <label class="field">
+                    <span>Modelo</span>
+                    <select name="model" id="ai-model" aria-describedby="ai-model-hint"></select>
+                    <small class="field-hint" id="ai-model-hint"></small>
+                  </label>
+                  <p class="form-status" id="ai-status" role="status" hidden></p>
+                  <div class="form-actions">
+                    <button class="secondary-button" id="ai-test" type="button">Testar chave e modelo</button>
+                    <button class="primary-button" id="ai-save" type="submit">Salvar</button>
+                  </div>
+                  <button class="link-button ai-remove" id="ai-remove-key" type="button" hidden>Remover a chave salva</button>
+                </fieldset>
+              </form>
+              <section class="usage-box" aria-labelledby="ai-usage-title">
+                <h4 id="ai-usage-title">Consumo registrado pelo Finance Chat</h4>
+                <dl class="summary-list" id="ai-usage"></dl>
+                <p class="form-hint" id="ai-usage-note">Estimativa feita com os tokens informados pela OpenAI e a tabela oficial de preços. Inclui só as chamadas deste Finance Chat para o seu usuário: não é o saldo nem o consumo total da sua chave na OpenAI.</p>
+              </section>
+            </section>
 
             <section class="panel-card stack-form">
               <div class="panel-heading">

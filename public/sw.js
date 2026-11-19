@@ -8,11 +8,13 @@
  * Network first: when online the newest files are always used (no stale
  * version after an update); the cache is only a fallback when offline.
  */
-const CACHE = 'finance-chat-shell-v2';
+const CACHE = 'finance-chat-shell-v3';
 const SHELL = [
   '/',
   '/app.css',
   '/app.js',
+  '/js/ai-format.js',
+  '/js/ai-settings.js',
   '/js/api.js',
   '/js/chat-view.js',
   '/js/history.js',
