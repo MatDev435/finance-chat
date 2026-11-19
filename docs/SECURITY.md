@@ -61,7 +61,20 @@ O endereço do servidor Actual é informado pelo usuário, então o Finance Chat
 - `DATA_DIR` contém o banco e os caches do Actual (cópias dos orçamentos). Mantenha-o com dono igual ao usuário do serviço e modo `700`.
 - O navegador guarda apenas o histórico visual das conversas (até 10 mensagens por conversa), sem tokens nem senhas. Ele é apagado no logout.
 
+## Modo IA (OpenAI)
+
+- Desativado por padrão, por usuário. Desativado, nenhuma requisição é feita à OpenAI.
+- A chave da OpenAI é cifrada com AES-256-GCM com uma chave derivada da `APP_SECRET` só para esta finalidade (`openai-api-key-v1`) e vinculada ao ID do usuário. Uma chave copiada para outro usuário, ou lida com outra `APP_SECRET`, não decifra.
+- Ela só é decifrada no servidor, logo antes de uma chamada, e só vai no cabeçalho `Authorization` para `https://api.openai.com/v1`. Nunca é devolvida pela API (`/api/me` e `/api/ai` informam apenas se existe uma chave), nunca vai para URLs, logs ou mensagens de erro, e não é guardada no navegador.
+- As mensagens de erro da OpenAI não são repassadas nem registradas (algumas citam parte da chave). O log guarda só o código, o status e o ID da requisição.
+- O que é enviado: instruções fixas, schema, data, nomes das categorias visíveis, o rascunho pendente (sem IDs), os filtros da última busca e a mensagem. Nunca: contas, saldos, transações, histórico do chat, IDs ou credenciais. As chamadas usam `store: false`.
+- O plano devolvido pelo modelo é dado não confiável: validado campo a campo (`src/ai/plan.js`); ele não pode gravar sem prévia e confirmação, apagar, desfazer, escolher conta, escolher categoria ou montar consultas. A busca é sempre limitada à conta da conversa.
+- Limites por usuário: teste de chave (10 a cada 5 minutos) e chamadas à IA pelo chat (40 a cada 10 minutos).
+- O consumo (`ai_usage`) guarda contadores de tokens e custo, nunca mensagens ou respostas, e cada usuário só vê o próprio.
+- Os testes automatizados nunca acessam a OpenAI: o transporte HTTP é substituído por um falso que falha em qualquer chamada inesperada.
+
 ## Rede
 
 - Bind padrão em `127.0.0.1`. Exponha via reverse proxy com HTTPS.
 - Se precisar de `HOST=0.0.0.0`, limite o acesso à porta com firewall.
+- Com o modo IA em uso, o servidor precisa de saída HTTPS para `api.openai.com`.

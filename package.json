@@ -1,6 +1,6 @@
 {
   "name": "finance-chat",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "better-sqlite3": "^13.2.0",
     "dotenv": "^16.4.7"
   },
-  "description": "Chat self-hosted para registrar movimentações no Actual Budget em linguagem natural, sem IA.",
+  "description": "Chat self-hosted para registrar movimentações no Actual Budget em linguagem natural, com parser determinístico e modo IA opcional (OpenAI).",
   "engines": {
     "node": ">=20"
   }
