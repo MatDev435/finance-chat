@@ -7,6 +7,9 @@ export const icons = {
   payee: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v13H4zM7 7V4h10v3M8 11h8M8 15h5"/></svg>',
   account: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>',
   date: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>',
+  batch: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="5" rx="1.5"/><rect x="4" y="10.5" width="16" height="5" rx="1.5"/><path d="M4 18.5h16"/></svg>',
+  search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>',
+  question: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/></svg>',
 };
 
 const STATUS_BADGES = {
@@ -16,6 +19,9 @@ const STATUS_BADGES = {
   failed: ['Não registrada', 'failed'],
   undone: ['Desfeita', 'cancelled'],
   stale: ['Não confirmada', 'cancelled'],
+  partial: ['Registro parcial', 'failed'],
+  done: ['Concluída', 'confirmed'],
+  expired: ['Não concluída', 'cancelled'],
 };
 
 export function formatCurrency(amount) { return Number(amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
@@ -95,6 +101,179 @@ function previewCard(entry, actions) {
   return card;
 }
 
+/** A preview row of a batch or draft: payee, signed amount, category (or parts) and date. */
+function itemRow(item, index) {
+  const row = element('li', 'batch-item');
+  const line = element('div', 'batch-line');
+  line.append(
+    element('span', 'batch-title', `${index + 1}. ${item.description || (item.type === 'income' ? 'Receita' : 'Despesa')}`),
+    element('span', `batch-amount ${item.type === 'income' ? 'income' : 'expense'}`, item.amount === null || item.amount === undefined ? 'valor a definir' : `${item.type === 'income' ? '+' : '−'} ${formatCurrency(item.amount)}`),
+  );
+  const parts = item.parts?.length
+    ? item.parts.map((part) => `${part.category || 'categoria a definir'}${part.amount === null || part.amount === undefined ? '' : ` ${formatCurrency(part.amount)}`}`).join(' + ')
+    : (item.category || 'categoria a definir');
+  const meta = element('div', 'batch-meta', item.date ? `${parts} · ${formatDate(item.date)}` : parts);
+  if (!item.category && !item.parts?.every((part) => part.category)) meta.classList.add('missing');
+  row.append(line, meta);
+  return row;
+}
+
+function actionRow(type, entryId, buttons) {
+  const row = element('div', 'message-actions');
+  row.dataset.live = type;
+  row.dataset.liveEntry = entryId;
+  row.append(...buttons);
+  return row;
+}
+
+function button(text, className, onClick) {
+  const node = element('button', className, text);
+  node.type = 'button';
+  node.addEventListener('click', onClick);
+  return node;
+}
+
+function batchCard(entry, actions) {
+  const data = entry.data;
+  const card = element('section', 'transaction-card batch-card');
+  card.setAttribute('aria-label', `Prévia de ${data.items.length} movimentações`);
+  const badge = element('span', 'pending-badge');
+  card.append(cardHeading(icons.batch, 'VÁRIAS MOVIMENTAÇÕES', `${data.items.length} itens`, badge));
+  const list = element('ol', 'batch-list');
+  list.append(...data.items.map(itemRow));
+  card.append(list);
+  const totals = element('div', 'transaction-details');
+  if (data.expenses) totals.append(detailRow('expense', 'Total de despesas', formatCurrency(data.expenses)));
+  if (data.incomes) totals.append(detailRow('income', 'Total de receitas', formatCurrency(data.incomes)));
+  if (data.account) totals.append(detailRow('account', 'Conta', data.account));
+  card.append(totals, element('p', 'card-note', 'Lotes não podem ser desfeitos pelo Finance Chat.'));
+  setPreviewStatus(card, entry.status === 'pending' && !actions ? 'stale' : entry.status);
+  if (actions) {
+    const confirmButton = element('button', '', '✓  Aprovar todas');
+    const cancelButton = element('button', 'secondary', '×  Cancelar');
+    confirmButton.type = 'button';
+    cancelButton.type = 'button';
+    const row = actionRow('batch', entry.id, [confirmButton, cancelButton]);
+    confirmButton.addEventListener('click', () => actions.onConfirm({ card, row, confirmButton, cancelButton }));
+    cancelButton.addEventListener('click', () => actions.onCancel({ card, row, confirmButton, cancelButton }));
+    card.append(row);
+  }
+  return card;
+}
+
+/**
+ * Missing data of an AI draft. Live only: suggestion buttons and a native
+ * select with every visible category for each missing category; amounts are
+ * answered in the chat. Restored from history, it is a plain summary.
+ */
+function clarifyCard(entry, actions) {
+  const data = entry.data;
+  const card = element('section', 'transaction-card clarify-card');
+  card.setAttribute('aria-label', 'Informações que faltam');
+  const badge = element('span', 'pending-badge');
+  const count = data.missing.length;
+  card.append(cardHeading(icons.question, 'FALTAM INFORMAÇÕES', `${count} ${count === 1 ? 'item' : 'itens'}`, badge));
+  const list = element('ol', 'batch-list');
+  list.append(...data.items.map(itemRow));
+  card.append(list);
+  setPreviewStatus(card, entry.status === 'pending' && !actions ? 'expired' : entry.status);
+  if (!actions) return card;
+
+  const controls = element('div', 'clarify-controls');
+  controls.dataset.live = 'clarify';
+  controls.dataset.liveEntry = entry.id;
+  const disableAll = () => controls.querySelectorAll('button, select').forEach((node) => { node.disabled = true; });
+  actions.missing.forEach((missing, index) => {
+    const group = element('fieldset', 'clarify-field');
+    group.append(element('legend', '', missing.label));
+    if (missing.field !== 'category') {
+      group.append(element('p', 'card-note', 'Responda com o valor aqui no chat.'));
+      controls.append(group);
+      return;
+    }
+    if (missing.suggestions.length) {
+      const suggestions = element('div', 'suggestion-actions');
+      for (const suggestion of missing.suggestions) {
+        suggestions.append(button(`Usar “${suggestion.name}”`, '', () => {
+          disableAll();
+          actions.onChoose(missing, suggestion);
+        }));
+      }
+      group.append(suggestions);
+    }
+    const pickId = `${entry.id}-pick-${index}`;
+    const picker = element('div', 'clarify-picker');
+    const label = element('label', 'sr-only', `Outra categoria para: ${missing.label}`);
+    label.htmlFor = pickId;
+    const select = element('select');
+    select.id = pickId;
+    select.append(Object.assign(document.createElement('option'), { value: '', textContent: missing.suggestions.length ? 'Outra categoria…' : 'Escolha a categoria…' }));
+    for (const category of actions.categories) select.append(Object.assign(document.createElement('option'), { value: category.id, textContent: category.name }));
+    const use = button('Usar', 'secondary-button', () => {
+      const chosen = actions.categories.find((category) => category.id === select.value);
+      if (!chosen) {
+        select.focus();
+        return;
+      }
+      disableAll();
+      actions.onChoose(missing, chosen);
+    });
+    picker.append(label, select, use);
+    group.append(picker);
+    controls.append(group);
+  });
+  controls.append(element('div', 'clarify-footer'));
+  controls.lastChild.append(button('Descartar estas movimentações', 'link-button', () => {
+    disableAll();
+    actions.onDiscard();
+  }));
+  card.append(controls);
+  return card;
+}
+
+const SEARCH_TITLES = {
+  list: 'BUSCA', sum: 'TOTAL', count: 'CONTAGEM', max: 'MAIOR VALOR', min: 'MENOR VALOR',
+};
+const TYPE_PLURAL = { expense: 'despesas', income: 'receitas', any: 'transações' };
+const TYPE_SINGULAR = { expense: 'despesa', income: 'receita', any: 'transação' };
+
+export function searchPeriod({ from, to }) {
+  if (!from) return 'Todo o histórico';
+  return from === to ? formatDate(from) : `${formatDate(from)} a ${formatDate(to)}`;
+}
+
+function searchCard(data) {
+  const card = element('section', 'transaction-card info-card search-card');
+  card.setAttribute('aria-label', 'Resultado da busca de transações');
+  let headline;
+  if (data.result === 'sum') headline = formatCurrency(Math.abs(data.total) / 100);
+  else if ((data.result === 'max' || data.result === 'min') && data.transactions[0]) headline = formatCurrency(Math.abs(data.transactions[0].amount) / 100);
+  else headline = `${data.count} ${(data.count === 1 ? TYPE_SINGULAR : TYPE_PLURAL)[data.type] || 'transações'}`;
+  card.append(cardHeading(icons.search, `${SEARCH_TITLES[data.result] || 'BUSCA'} · ${(TYPE_PLURAL[data.type] || 'transações').toUpperCase()}`, headline, element('span')));
+  const details = element('div', 'transaction-details');
+  details.append(detailRow('account', 'Conta', data.account));
+  if (data.payees?.length) details.append(detailRow('payee', 'Beneficiário', data.payees.join(', ')));
+  if (data.category) details.append(detailRow('category', 'Categoria', data.category));
+  details.append(detailRow('date', 'Período', searchPeriod(data)));
+  if (data.result === 'sum' || data.result === 'count') details.append(detailRow('batch', data.result === 'sum' ? 'Transações' : 'Soma', data.result === 'sum' ? String(data.count) : formatCurrency(Math.abs(data.total) / 100)));
+  card.append(details);
+  if (data.transactions?.length) {
+    const list = element('ol', 'search-list');
+    for (const transaction of data.transactions) {
+      const item = element('li', 'search-item');
+      const line = element('div', 'batch-line');
+      line.append(
+        element('span', 'batch-title', transaction.payee || 'Sem beneficiário'),
+        element('span', `batch-amount ${transaction.amount > 0 ? 'income' : 'expense'}`, `${transaction.amount > 0 ? '+' : '−'} ${formatCurrency(Math.abs(transaction.amount) / 100)}`),
+      );
+      item.append(line, element('div', 'batch-meta', `${formatDate(transaction.date)}${transaction.category ? ` · ${transaction.category}` : ''}`));
+      list.append(item);
+    }
+    card.append(list);
+  }
+  return card;
+}
+
 function spendingCard(data) {
   const card = element('section', 'transaction-card info-card');
   card.setAttribute('aria-label', 'Resultado da consulta de disponibilidade');
@@ -119,6 +298,7 @@ export function announcementFor(entry) {
   if (entry.kind === 'preview' && entry.data) {
     return `${text} ${entry.data.type === 'income' ? 'Receita' : 'Despesa'} de ${formatCurrency(entry.data.amount)}.`;
   }
+  if (entry.kind === 'batch' && entry.data) return `${text} ${entry.data.items.length} movimentações aguardando aprovação.`;
   return text;
 }
 
@@ -173,6 +353,9 @@ export function createChatView({ conversation, typingIndicator, announcer }) {
     let card = null;
     if (entry.kind === 'preview' && entry.data) card = previewCard(entry, actions);
     if (entry.kind === 'spending' && entry.data) card = spendingCard(entry.data);
+    if (entry.kind === 'batch' && entry.data) card = batchCard(entry, actions);
+    if (entry.kind === 'clarify' && entry.data) card = clarifyCard(entry, actions);
+    if (entry.kind === 'search' && entry.data) card = searchCard(entry.data);
     if (card) bubble.append(card);
     if (actions?.suggestions?.length) {
       const row = element('div', 'suggestion-actions');
@@ -208,6 +391,8 @@ export function createChatView({ conversation, typingIndicator, announcer }) {
       time.dateTime = new Date(entry.at).toISOString();
       content.append(time);
     }
+    // Transparency: answers that needed the AI say so (and that it used tokens).
+    if (entry.ai) content.append(element('span', 'ai-note', '✦ Interpretado pela IA'));
 
     row.append(content);
     conversation.append(row);

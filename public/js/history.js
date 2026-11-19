@@ -8,8 +8,8 @@ export const HISTORY_LIMIT = 10;
 const VERSION = 'v1';
 const MAX_TEXT = 2000;
 const ROLES = new Set(['user', 'assistant']);
-const KINDS = new Set(['text', 'error', 'warning', 'preview', 'spending']);
-const STATUSES = new Set(['pending', 'confirmed', 'cancelled', 'failed', 'undone']);
+const KINDS = new Set(['text', 'error', 'warning', 'preview', 'spending', 'batch', 'clarify', 'search']);
+const STATUSES = new Set(['pending', 'confirmed', 'cancelled', 'failed', 'undone', 'partial', 'done']);
 
 export function historyPrefix(userId) {
   return `finance-chat:history:${VERSION}:${userId}:`;
@@ -22,8 +22,48 @@ export function historyKey(userId, accountId) {
 const text = (value, max = MAX_TEXT) => (typeof value === 'string' ? value.slice(0, max) : '');
 const number = (value) => (Number.isFinite(value) ? value : null);
 
+const amountOrNull = (value) => (value === null || value === undefined ? null : number(value));
+
+/** One item of a batch or draft: display fields only. */
+function sanitizeItem(item) {
+  return {
+    type: item?.type === 'income' ? 'income' : 'expense',
+    amount: amountOrNull(item?.amount),
+    description: text(item?.description, 200),
+    category: text(item?.category, 200),
+    date: text(item?.date, 10),
+    ...(Array.isArray(item?.parts) ? { parts: item.parts.slice(0, 10).map((part) => ({ category: text(part?.category, 200), amount: amountOrNull(part?.amount) })) } : {}),
+  };
+}
+
 function sanitizeData(kind, data) {
   if (!data || typeof data !== 'object') return undefined;
+  if (kind === 'batch' || kind === 'clarify') {
+    const items = Array.isArray(data.items) ? data.items.slice(0, 10).map(sanitizeItem) : [];
+    if (kind === 'clarify') {
+      return { items, missing: Array.isArray(data.missing) ? data.missing.slice(0, 20).map((missing) => ({ label: text(missing?.label, 300) })) : [] };
+    }
+    return { items, expenses: number(data.expenses), incomes: number(data.incomes), account: text(data.account, 200) };
+  }
+  if (kind === 'search') {
+    return {
+      result: ['list', 'sum', 'count', 'max', 'min'].includes(data.result) ? data.result : 'list',
+      type: ['expense', 'income', 'any'].includes(data.type) ? data.type : 'any',
+      from: data.from ? text(data.from, 10) : null,
+      to: text(data.to, 10),
+      account: text(data.account, 200),
+      payees: Array.isArray(data.payees) ? data.payees.slice(0, 10).map((payee) => text(payee, 200)) : [],
+      category: data.category ? text(data.category, 200) : null,
+      count: number(data.count) ?? 0,
+      total: number(data.total) ?? 0,
+      transactions: Array.isArray(data.transactions) ? data.transactions.slice(0, 20).map((transaction) => ({
+        date: text(transaction?.date, 10),
+        amount: number(transaction?.amount) ?? 0,
+        payee: transaction?.payee ? text(transaction.payee, 200) : null,
+        category: transaction?.category ? text(transaction.category, 200) : null,
+      })) : [],
+    };
+  }
   if (kind === 'preview') {
     return {
       type: data.type === 'income' ? 'income' : 'expense',
@@ -61,6 +101,7 @@ export function sanitizeEntry(entry) {
   const data = sanitizeData(entry.kind, entry.data);
   if (data) clean.data = data;
   if (STATUSES.has(entry.status)) clean.status = entry.status;
+  if (entry.ai === true) clean.ai = true;
   return clean;
 }
 
