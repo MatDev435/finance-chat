@@ -77,3 +77,81 @@ test('invalid settings are refused with the field, and turning the AI off keeps 
   assert.equal(removed.body.settings.hasKey, false);
   await app.close();
 });
+
+test('testing a typed key lists the models, probes the chosen one with the real schema and saves nothing', async () => {
+  const app = await startApp();
+  const ana = await signedIn(app, 'ana', ANA_CONNECTION);
+  app.openai.replyModels(['gpt-6-luna', 'gpt-6.2-sol', 'whisper-1']).replyPlan({ operations: [], draftUpdates: [], cancelDraft: false, question: null }, { id: 'resp_probe' });
+  const response = await ana.post('/api/ai/test', { apiKey: KEY, model: 'gpt-6.2-sol' });
+  assert.equal(response.status, 200);
+  assert.match(response.body.message, /GPT-6\.2 Sol/);
+  assert.deepEqual(response.body.availableModels, ['gpt-6-luna', 'gpt-6.2-sol']);
+  assert.equal(response.body.usage.total.requests, 1);
+  const [list, probe] = app.openai.requests;
+  assert.equal(list.url, 'https://api.openai.com/v1/models');
+  assert.equal(probe.body.model, 'gpt-6.2-sol');
+  assert.equal(probe.body.text.format.strict, true);
+  assert.equal(probe.headers.Authorization, `Bearer ${KEY}`);
+  assert.equal(app.db.prepare("SELECT purpose FROM ai_usage WHERE response_id = 'resp_probe'").pluck().get(), 'test');
+  assert.equal((await ana.get('/api/ai')).body.settings.hasKey, false, 'a test never saves the key');
+  assert.equal(response.text.includes(KEY), false);
+  await app.close();
+});
+
+test('the test reports an unavailable model without spending tokens, and uses the saved key when none is typed', async () => {
+  const app = await startApp();
+  const ana = await signedIn(app, 'ana', ANA_CONNECTION);
+  assert.equal((await ana.post('/api/ai/test', {})).body.field, 'apiKey', 'no key typed or saved');
+  await ana.put('/api/ai/settings', { apiKey: KEY, model: 'gpt-6.2-astra' });
+  app.openai.replyModels(['gpt-6-luna']);
+  const response = await ana.post('/api/ai/test', {});
+  assert.equal(response.status, 502);
+  assert.equal(response.body.code, 'AI_MODEL_UNAVAILABLE');
+  assert.match(response.body.error, /GPT-6\.2 Astra/);
+  assert.equal(app.openai.requests.length, 1, 'no probe request');
+  assert.equal(app.openai.requests[0].headers.Authorization, `Bearer ${KEY}`);
+  await app.close();
+});
+
+test('the test explains invalid keys, missing credit and rate limits, and never leaks the key in logs', async () => {
+  const app = await startApp();
+  const ana = await signedIn(app, 'ana', ANA_CONNECTION);
+  app.openai.replyError(401, { code: 'invalid_api_key' });
+  const invalid = await ana.post('/api/ai/test', { apiKey: KEY });
+  assert.equal(invalid.body.code, 'AI_AUTH');
+  assert.match(invalid.body.error, /recusou a chave/);
+
+  app.openai.replyModels(['gpt-6-luna']).replyError(429, { type: 'insufficient_quota', code: 'credit_balance_exhausted' });
+  const quota = await ana.post('/api/ai/test', { apiKey: KEY });
+  assert.equal(quota.body.code, 'AI_QUOTA');
+  assert.match(quota.body.error, /sem créditos/);
+
+  app.openai.replyModels(['gpt-6-luna']).replyError(429, { code: 'rate_limit_exceeded' }, { 'retry-after': '20' });
+  const limited = await ana.post('/api/ai/test', { apiKey: KEY });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.body.code, 'AI_RATE_LIMIT');
+  assert.equal(limited.headers.get('retry-after'), '20');
+
+  // A restricted key that cannot list models can still be tested by the probe.
+  app.openai.replyError(403, { code: 'insufficient_permissions' }).replyPlan({ operations: [], draftUpdates: [], cancelDraft: false, question: null });
+  const restricted = await ana.post('/api/ai/test', { apiKey: KEY });
+  assert.equal(restricted.status, 200);
+  assert.equal(restricted.body.availableModels, null);
+
+  for (const text of [invalid.text, quota.text, limited.text, app.logs.join('\n')]) {
+    assert.equal(text.includes(KEY), false);
+    assert.equal(text.includes('Incorrect API key'), false);
+  }
+  await app.close();
+});
+
+test('key tests are rate limited per user', async () => {
+  const app = await startApp();
+  const ana = await signedIn(app, 'ana', ANA_CONNECTION);
+  for (let attempt = 0; attempt < 10; attempt += 1) app.openai.replyError(401, { code: 'invalid_api_key' });
+  for (let attempt = 0; attempt < 10; attempt += 1) assert.equal((await ana.post('/api/ai/test', { apiKey: KEY })).body.code, 'AI_AUTH');
+  const blocked = await ana.post('/api/ai/test', { apiKey: KEY });
+  assert.equal(blocked.status, 429);
+  assert.equal(blocked.body.code, 'TOO_MANY_ATTEMPTS');
+  await app.close();
+});

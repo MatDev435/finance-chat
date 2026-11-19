@@ -12,9 +12,11 @@ import { createRateLimiter } from './rate-limit.js';
 import { currentLocalDate } from './transaction-mapping.js';
 import { createUndoStore } from './undo.js';
 import { ACCOUNT_ID_PATTERN, inputError, resolveConnectionInput } from './user-store.js';
-import { AI_MODELS, DEFAULT_MODEL } from './ai/models.js';
+import { AI_MODELS, DEFAULT_MODEL, findModel } from './ai/models.js';
+import { aiError, createInterpreter } from './ai/interpreter.js';
+import { weekdayOf } from './ai/plan-schema.js';
 import { perMillionText, priceTableAt } from './ai/pricing.js';
-import { resolveAiSettingsInput } from './ai/store.js';
+import { apiKeyFrom, resolveAiSettingsInput } from './ai/store.js';
 
 export const ACCESS_COOKIE = 'fc_access';
 export const REFRESH_COOKIE = 'fc_refresh';
@@ -39,6 +41,22 @@ const ERROR_STATUS = {
   ACTUAL_ERROR: 503,
   WRITE_UNCERTAIN: 503,
   UNDO_UNCERTAIN: 503,
+  // AI mode: OpenAI errors (src/ai/openai-client.js) and interpretation outcomes.
+  AI_AUTH: 502,
+  AI_FORBIDDEN: 502,
+  AI_QUOTA: 502,
+  AI_MODEL_UNAVAILABLE: 502,
+  AI_BAD_REQUEST: 502,
+  AI_INVALID_OUTPUT: 502,
+  AI_UNAVAILABLE: 503,
+  AI_NETWORK: 503,
+  AI_TIMEOUT: 504,
+  AI_RATE_LIMIT: 429,
+  AI_TOO_MANY: 429,
+  AI_REFUSAL: 422,
+  AI_INCOMPLETE: 422,
+  AI_INVALID_PLAN: 422,
+  AI_KEY_UNREADABLE: 409,
 };
 
 function moneyText(amount) {
@@ -104,13 +122,36 @@ function publicModels() {
   });
 }
 
-export function createApp({ config, auth, store, aiStore, actual, pending, undo = createUndoStore(), publicDir, log = console }) {
+/** The message used by the explicit key test: exercises the real schema with a tiny, fictitious context. */
+function probeContext() {
+  const today = currentLocalDate();
+  return { today, weekday: weekdayOf(today), currency: 'BRL', categories: ['Teste'], draft: null, lastSearch: null, message: 'Quanto tenho disponível em Teste?' };
+}
+
+export function createApp({ config, auth, store, aiStore, openai, actual, pending, undo = createUndoStore(), publicDir, log = console }) {
   const limiters = {
     loginIp: createRateLimiter({ limit: 20, windowMs: 15 * MINUTE }),
     loginUser: createRateLimiter({ limit: 5, windowMs: 15 * MINUTE }),
     signup: createRateLimiter({ limit: 10, windowMs: 60 * MINUTE }),
     connectionTest: createRateLimiter({ limit: 10, windowMs: 5 * MINUTE }),
+    aiTest: createRateLimiter({ limit: 10, windowMs: 5 * MINUTE }),
+    aiChat: createRateLimiter({ limit: 40, windowMs: 10 * MINUTE }),
   };
+  const interpreter = createInterpreter({ client: openai, aiStore, log });
+
+  function logOpenAI(error) {
+    if (error?.code?.startsWith?.('AI_')) log.error(`[openai] ${error.code}${error.status ? ` status=${error.status}` : ''}${error.apiCode ? ` code=${error.apiCode}` : ''}${error.requestId ? ` request=${error.requestId}` : ''}`);
+  }
+
+  /** The stored key for an explicit test; a key sealed with another APP_SECRET asks for it again. */
+  function storedKey(userId) {
+    try {
+      return aiStore.storedKey(userId);
+    } catch (error) {
+      if (error.code === 'SECRET_UNREADABLE') throw new HttpError(409, 'AI_KEY_UNREADABLE', 'Não foi possível ler a chave da OpenAI salva (a APP_SECRET mudou?). Informe a chave novamente.');
+      throw error;
+    }
+  }
 
   function enforce(limiter, key) {
     const { allowed, retryAfterMs } = limiter.check(key);
@@ -296,6 +337,49 @@ export function createApp({ config, auth, store, aiStore, actual, pending, undo 
       },
     },
 
+    /**
+     * Explicit test of a key and model (typed or saved), without saving: the key
+     * must list the model (when it can list models at all) and the model must
+     * answer one request with the real Structured Outputs schema. The test
+     * request is billed like any other and recorded with purpose "test".
+     */
+    'POST /api/ai/test': {
+      async handler(ctx) {
+        const userKey = `user:${ctx.user.id}`;
+        enforce(limiters.aiTest, userKey);
+        limiters.aiTest.hit(userKey);
+        const requested = ctx.body.model === undefined ? aiStore.settings(ctx.user.id).model : ctx.body.model;
+        const model = typeof requested === 'string' ? findModel(requested) : null;
+        if (!model) throw inputError('Escolha um dos modelos da lista.', 'model');
+        const apiKey = ctx.body.apiKey ? apiKeyFrom(ctx.body.apiKey) : storedKey(ctx.user.id);
+        if (!apiKey) throw inputError('Informe a chave de API da OpenAI.', 'apiKey');
+
+        let listed = null;
+        try {
+          listed = await openai.listModels({ apiKey });
+        } catch (error) {
+          logOpenAI(error);
+          // A restricted key may be allowed to create responses without listing models.
+          if (error.code !== 'AI_FORBIDDEN') throw error;
+        }
+        if (listed && !listed.includes(model.id)) {
+          throw aiError('AI_MODEL_UNAVAILABLE', `A chave funciona, mas o modelo ${model.name} não está disponível para ela. Escolha outro modelo.`);
+        }
+        try {
+          await interpreter.interpret({ userId: ctx.user.id, credentials: { model: model.id, apiKey }, context: probeContext(), purpose: 'test' });
+        } catch (error) {
+          // A truncated answer still proves that the key, the model and the schema were accepted.
+          if (error.code !== 'AI_INCOMPLETE') throw error;
+        }
+        return sendJson(ctx.response, 200, {
+          ok: true,
+          message: `Chave e modelo funcionando: o ${model.name} respondeu no formato esperado.`,
+          availableModels: listed ? AI_MODELS.filter((item) => listed.includes(item.id)).map((item) => item.id) : null,
+          usage: aiStore.usageSummary(ctx.user.id),
+        });
+      },
+    },
+
     'POST /api/connection/test': {
       async handler(ctx) {
         const accounts = await actual.test(candidateConnection(ctx), listChatAccounts);
@@ -448,6 +532,9 @@ export function createApp({ config, auth, store, aiStore, actual, pending, undo 
       return sendJson(response, error.status, { ok: false, code: error.code, error: error.message }, headers);
     }
     const status = ERROR_STATUS[error?.code];
+    if (status && error.retryAfter) {
+      return sendJson(response, status, { ok: false, code: error.code, error: error.message, retryAfter: error.retryAfter }, { 'Retry-After': String(error.retryAfter) });
+    }
     if (status) {
       if (['ACTUAL_ERROR', 'WRITE_UNCERTAIN', 'UNDO_UNCERTAIN'].includes(error.code)) log.error(`[actual] ${error.code} ${error.reason || ''} ${error.detail || error.cause?.code || ''}`.trim());
       const body = { ok: false, code: error.code, error: error.message };

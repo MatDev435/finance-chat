@@ -19,6 +19,8 @@ import { createPendingStore } from '../../src/pending.js';
 import { createSecretBox } from '../../src/secrets.js';
 import { createUserStore } from '../../src/user-store.js';
 import { createAiStore } from '../../src/ai/store.js';
+import { createOpenAIClient } from '../../src/ai/openai-client.js';
+import { createFakeOpenAI } from './fake-openai.js';
 import { createBudget, createFakeActual } from './fake-actual.js';
 import { createClient } from './http-client.js';
 
@@ -63,11 +65,14 @@ export async function startApp({ allowSignup = true, extraApp = {}, anaBudget = 
   const config = loadConfig({ APP_SECRET: SECRET, ALLOW_SIGNUP: String(allowSignup), DATA_DIR: dataRoot });
   const logs = [];
   const aiStore = createAiStore(db, createSecretBox(SECRET, 'openai-api-key-v1'));
+  // Every app gets a fake OpenAI transport: an unexpected request fails, nothing reaches the network.
+  const openai = createFakeOpenAI();
   const handler = createApp({
     config,
     auth: createAuth({ db, appSecret: SECRET, passwordParams: { N: 1024, r: 8, p: 1 } }),
     store: createUserStore(db, createSecretBox(SECRET)),
     aiStore,
+    openai: createOpenAIClient({ fetch: openai.fetch }),
     actual: createActualManager({ api, dataRoot }),
     pending: createPendingStore(),
     publicDir: fileURLToPath(new URL('../../public', import.meta.url)),
@@ -78,7 +83,7 @@ export async function startApp({ allowSignup = true, extraApp = {}, anaBudget = 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   const client = () => createClient(base, { origin: base });
-  return { api, db, servers, base, client, logs, aiStore, budget: anaFile, close: () => new Promise((resolve) => server.close(resolve)) };
+  return { api, db, servers, base, client, logs, aiStore, openai, budget: anaFile, close: () => new Promise((resolve) => server.close(resolve)) };
 }
 
 export async function signedIn(app, username, connection) {
