@@ -9,7 +9,8 @@ export function toActualImport(validation, date) {
     transaction: {
       date,
       amount: amountToCents(command.amount) * sign,
-      payee_name: command.description,
+      // Messages interpreted by the AI may have no payee ("gastei 50 em alimentação").
+      ...(command.description ? { payee_name: command.description } : {}),
       // A split transaction has no category of its own: each part carries one.
       ...(splits
         ? { subtransactions: splits.map((split) => ({ amount: amountToCents(split.amount) * sign, category: split.category.id })) }

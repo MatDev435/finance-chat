@@ -26,7 +26,15 @@ import { createClient } from './http-client.js';
 
 export const SECRET = 'z'.repeat(43);
 const dataRoot = mkdtempSync(join(tmpdir(), 'finance-chat-app-'));
-test.after(() => rmSync(dataRoot, { recursive: true, force: true }));
+// Servers left open by a failed assertion would keep the test process alive.
+const openServers = new Set();
+test.after(async () => {
+  for (const server of openServers) {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+  rmSync(dataRoot, { recursive: true, force: true });
+});
 
 export const CATEGORIES = [{ id: 'cat-food', name: 'Alimentação' }, { id: 'cat-salary', name: 'Salário' }];
 
@@ -80,10 +88,17 @@ export async function startApp({ allowSignup = true, extraApp = {}, anaBudget = 
     ...extraApp,
   });
   const server = createServer(handler);
+  openServers.add(server);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   const client = () => createClient(base, { origin: base });
-  return { api, db, servers, base, client, logs, aiStore, openai, budget: anaFile, close: () => new Promise((resolve) => server.close(resolve)) };
+  return { api, db, servers, base, client, logs, aiStore, openai, budget: anaFile,
+    close: () => {
+      openServers.delete(server);
+      server.closeAllConnections();
+      return new Promise((resolve) => server.close(resolve));
+    },
+  };
 }
 
 export async function signedIn(app, username, connection) {

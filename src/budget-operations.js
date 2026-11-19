@@ -1,4 +1,6 @@
 import { chatAccounts, requireChatAccount } from './accounts.js';
+import { resolveDate } from './dates.js';
+import { applyUpdates, checkItems, missingFields, pickerCategories, resolveItems, toCommand } from './drafts.js';
 import { toActualImport, transactionCategoryIds } from './transaction-mapping.js';
 import { validateCommand, validationError } from './validation.js';
 
@@ -67,6 +69,72 @@ export async function commitTransaction(api, mapped) {
   } catch {
     // The transaction is stored in the local copy and is uploaded on the next successful sync.
     return { account, synced: false, transactionId };
+  }
+}
+
+/**
+ * Read-only: resolves AI draft items (and optional updates filling missing
+ * data) against freshly synced budget data. While something is missing it
+ * returns { status: 'incomplete', items, missing, categories }; once complete
+ * every item goes through the same validation and mapping as a parsed
+ * command and it returns { status: 'ready', previews: [{ command, validation, mapped, date }] }.
+ * Writes nothing.
+ */
+export async function prepareItems(api, { accountId, items, updates = [], today }) {
+  await api.sync();
+  const [accounts, categories] = await Promise.all([api.getAccounts(), api.getCategories()]);
+  const account = requireChatAccount(accounts, accountId);
+  let current = resolveItems(items, categories);
+  let applied = 0;
+  if (updates.length) ({ items: current, applied } = applyUpdates(current, updates, categories));
+  checkItems(current);
+  const missing = missingFields(current);
+  if (missing.length) return { status: 'incomplete', account, items: current, missing, applied, categories: pickerCategories(categories) };
+  const previews = current.map((item) => {
+    const command = toCommand(item);
+    const validation = validateCommand(command, { accounts, categories, accountId });
+    const date = resolveDate(command.when, today);
+    return { command, validation, mapped: toActualImport(validation, date), date };
+  });
+  return { status: 'ready', account, items: current, previews, applied };
+}
+
+/**
+ * Writes a confirmed batch, one transaction at a time, in order. Account and
+ * every category are re-validated first: any problem there means nothing is
+ * written. During the writes, the first failure stops the batch: that item is
+ * "uncertain" (it may or may not have been recorded) and the following ones
+ * are "skipped" (never sent). Nothing is retried automatically. Returns
+ * { account, results: ['written' | 'uncertain' | 'skipped'], synced }.
+ */
+export async function commitTransactions(api, mappedList) {
+  await api.sync();
+  const [accounts, categories] = await Promise.all([api.getAccounts(), api.getCategories()]);
+  const accountId = mappedList[0]?.accountId;
+  const account = requireChatAccount(accounts, accountId);
+  if (mappedList.some((mapped) => mapped.accountId !== accountId)) throw validationError('As movimentações deste lote não são todas da mesma conta. Envie a mensagem novamente.');
+  const known = new Set(categories.map((category) => category.id));
+  if (!mappedList.every((mapped) => transactionCategoryIds(mapped.transaction).every((id) => known.has(id)))) {
+    throw validationError('Uma das categorias deste lote não existe mais no Actual Budget. Envie a mensagem novamente.');
+  }
+
+  const results = mappedList.map(() => 'skipped');
+  for (let index = 0; index < mappedList.length; index += 1) {
+    try {
+      await api.addTransactions(account.id, [mappedList[index].transaction]);
+      results[index] = 'written';
+    } catch {
+      results[index] = 'uncertain';
+      break;
+    }
+  }
+
+  try {
+    await api.sync();
+    return { account, results, synced: true };
+  } catch {
+    // What was written stays in the local copy and is uploaded on the next successful sync.
+    return { account, results, synced: false };
   }
 }
 
