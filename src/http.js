@@ -18,7 +18,8 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'no-referrer',
   'Cross-Origin-Opener-Policy': 'same-origin',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  // microphone=(self): voice dictation in the composer (Web Speech API); never in frames or other origins.
+  'Permissions-Policy': 'camera=(), microphone=(self), geolocation=()',
 };
 
 export function applySecurityHeaders(response) {

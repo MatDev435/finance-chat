@@ -55,6 +55,7 @@ O endereço do servidor Actual é informado pelo usuário, então o Finance Chat
 - O service worker só armazena os arquivos estáticos da interface. Requisições para `/api/*` e `/health` passam direto para o servidor e nunca são guardadas, então contas, transações e tokens não ficam no cache.
 - Estratégia "rede primeiro": online, sempre usa a versão mais nova dos arquivos; o cache é só fallback offline.
 - Sem push, sincronização em segundo plano, analytics ou chamadas a terceiros.
+- `Permissions-Policy: microphone=(self)`: o microfone só pode ser pedido pelo próprio Finance Chat (ditado por voz), nunca por frames ou outras origens. O ditado usa o reconhecimento de voz do navegador; o áudio vai para o serviço do navegador (Google no Chrome, Apple no Safari), não para o servidor do Finance Chat, e o texto reconhecido só preenche o campo, sem envio automático.
 
 ## Dados locais
 

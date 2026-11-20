@@ -4,6 +4,7 @@ import { browserStorage, createHistory } from './js/history.js';
 import { entrySummary, initials, reconcileSelection, resolveInitialAccount, sidebarMotion, viewFor } from './js/navigation.js';
 import { createSettings } from './js/settings.js';
 import { createSetup } from './js/setup.js';
+import { createVoiceInput } from './js/voice.js';
 
 const $ = (selector) => document.querySelector(selector);
 const app = $('#app');
@@ -457,6 +458,7 @@ function renderChat() {
 
 function selectAccount(accountId) {
   if (state.selectedId === accountId && !state.settingsOpen) return;
+  voice.stop(); // dictation never continues into another chat
   const wasInList = !state.selectedId && !state.settingsOpen;
   state.selectedId = accountId;
   state.settingsOpen = false;
@@ -476,6 +478,7 @@ function goBack() {
 }
 
 function stepBack() {
+  voice.stop();
   const leftAccountId = state.selectedId;
   if (state.settingsOpen) state.settingsOpen = false;
   else if (mobileQuery.matches) state.selectedId = null;
@@ -710,8 +713,17 @@ async function discardDraft(accountId, entryId) {
   }
 }
 
+/** Dictation fills the field only; the message is sent with the usual button, after review. */
+const voice = createVoiceInput({
+  button: $('#voice-button'),
+  input: messageInput,
+  status: $('#voice-status'),
+  announce: (text) => { $('#chat-announcer').replaceChildren(Object.assign(document.createElement('span'), { textContent: text })); },
+});
+
 $('#command-form').addEventListener('submit', (event) => {
   event.preventDefault();
+  voice.stop();
   const accountId = state.selectedId;
   const text = messageInput.value.trim();
   if (!accountId || !text || state.busy.has(accountId)) return;

@@ -171,10 +171,12 @@
 
           <div class="composer-area">
             <p class="privacy-note"><span aria-hidden="true">♙</span> <span id="privacy-text">Você pode escrever em linguagem natural, como se estivesse falando.</span></p>
+            <p class="voice-status" id="voice-status" role="status" hidden></p>
             <form id="command-form" class="composer">
               <div class="composer-icon" aria-hidden="true">✦</div>
               <label class="sr-only" for="message">Descreva a movimentação</label>
               <input id="message" autocomplete="off" placeholder="Digite uma movimentação..." maxlength="500" required>
+              <button id="voice-button" class="voice-button" type="button" aria-pressed="false" aria-label="Ditar mensagem por voz" title="Ditar mensagem por voz" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21M8.5 21h7"/></svg></button>
               <button id="preview-button" class="send-button" aria-label="Revisar movimentação" title="Revisar movimentação"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-3 14-4-5-7-2Z"/><path d="m12 14 7-9"/></svg></button>
             </form>
           </div>
