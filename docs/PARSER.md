@@ -148,6 +148,7 @@ quanto gastei por mês com alimentação?
 - O nome depois de `com`, `em`, `no`, `na`, `de`... é **categoria** se for exatamente o nome de uma categoria (sem diferenciar maiúsculas e acentos); senão, é **beneficiário** (e, sem beneficiário com esse nome, é procurado nas notas).
 - Períodos no fim: `hoje`, `ontem`, `esta semana`, `semana passada`, `este mês`, `mês passado`, `este ano`, `ano passado`, `em outubro` (o mais recente já iniciado), `em março de 2025`, `em 2025`, `nos últimos N dias` ou `meses` (N em algarismos ou por extenso, até doze). Sem período, todo o histórico.
 - `por mês`, `em cada mês` ou `mês a mês` mostram o total de cada mês separadamente. Sem período, o ano atual; com `nos últimos N meses`, os N meses do calendário (o atual e os anteriores). No máximo 24 meses.
+- Quando o período cobre 2 meses ou mais, a resposta traz um gráfico de barras com cada mês, legível pelo leitor de tela (cada barra é lida com o mês, o valor e a quantidade).
 - Vale sempre só a conta da conversa, sem transferências nem saldo inicial.
 - Com o modo IA ligado, se o nome não for exatamente uma categoria nem um beneficiário, ou se a frase tiver outros filtros ("quanto gastei hoje no uber"), a mensagem vai para a IA.
 - `Quanto tenho em X?` continua sendo o saldo da categoria.

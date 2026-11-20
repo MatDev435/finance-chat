@@ -163,7 +163,7 @@ export async function executeSearch(api, spec) {
   const scalar = async (expression) => Number((await api.aqlQuery(base().calculate(expression))).data) || 0;
   const count = await scalar({ $count: '$id' });
   const total = count ? await scalar({ $sum: '$amount' }) : 0;
-  if (spec.result === 'by_month') {
+  if (spec.result === 'by_month' || spec.monthly) {
     const months = [];
     for (const span of monthSpans(spec.from, spec.to)) {
       const monthly = (expression) => api.aqlQuery(api.q('transactions').filter(buildFilter({ ...spec, from: span.from, to: span.to }))
@@ -267,6 +267,8 @@ export function createSearch({ actual, conversations, today = currentLocalDate }
           categoryId: category?.id ?? null,
           notesPattern: pattern,
           result,
+          // A total over several months also brings each month's total (for the chart).
+          monthly: result === 'sum' && Boolean(period.from) && monthSpans(period.from, period.to).length > 1 && monthSpans(period.from, period.to).length <= MAX_MONTHS,
           order: merged.order || 'newest',
           limit: Math.min(merged.limit ?? DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT),
         };
@@ -318,6 +320,7 @@ export function createSearch({ actual, conversations, today = currentLocalDate }
           months: outcome.empty ? monthSpans(period.from, period.to).map(({ month }) => ({ month, count: 0, total: 0 })) : outcome.data.months,
           truncated,
         } : {}),
+        ...(result === 'sum' && !outcome.empty && outcome.data.months ? { months: outcome.data.months } : {}),
       };
       return { ok: true, kind: 'search', message: searchText(view), search: view };
     },

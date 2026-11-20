@@ -102,3 +102,16 @@ test('the AI asks for month by month: no period means this year; a follow-up "e 
   assert.match(long.message, /Mostrei só os últimos 24 meses\.$/);
   await app.close();
 });
+
+test('a total over several months also brings each month (for the chart); a single month does not', async () => {
+  const { app, send } = await spendingApp();
+  const rolling = await send('quanto gastei com alimentação nos últimos 3 meses');
+  assert.equal(rolling.search.result, 'sum');
+  assert.equal(rolling.search.total, -15500);
+  // A rolling window of 3 months touches 4 calendar months (the first one partial).
+  assert.equal(rolling.search.months.length, 4);
+  assert.equal(rolling.search.months.reduce((sum, item) => sum + item.total, 0), -15500);
+  assert.equal((await send('quanto gastei com alimentação este mês')).search.months, undefined);
+  assert.equal((await send('quanto gastei com alimentação')).search.months, undefined, 'all history: no chart');
+  await app.close();
+});

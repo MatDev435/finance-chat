@@ -1,4 +1,5 @@
 /** DOM rendering for one conversation. Text always goes through textContent. */
+import { monthChart } from './month-chart.js';
 
 export const icons = {
   expense: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h2l2 11h10l2-8H7"/><circle cx="10" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/></svg>',
@@ -262,6 +263,8 @@ function searchCard(data) {
   if (data.result === 'by_month') details.append(detailRow('batch', 'Transações', String(data.count)));
   if (data.result === 'sum' || data.result === 'count') details.append(detailRow('batch', data.result === 'sum' ? 'Transações' : 'Soma', data.result === 'sum' ? String(data.count) : formatCurrency(Math.abs(data.total) / 100)));
   card.append(details);
+  const chart = monthChart(data);
+  if (chart) card.append(chart);
   if (data.result === 'by_month' && data.months?.length) {
     const list = element('ol', 'search-list month-list');
     list.setAttribute('aria-label', 'Total por mês');
@@ -277,7 +280,14 @@ function searchCard(data) {
       if (item.count) row.append(element('div', 'batch-meta', `${item.count} ${item.count === 1 ? TYPE_SINGULAR[data.type] || 'transação' : TYPE_PLURAL[data.type] || 'transações'}`));
       list.append(row);
     }
-    card.append(list);
+    if (chart) {
+      // The chart already reads every month (exact values) to screen readers; the list is optional.
+      const details = element('details', 'month-details');
+      details.append(element('summary', '', 'Ver valores de cada mês'), list);
+      card.append(details);
+    } else {
+      card.append(list);
+    }
   }
   if (data.transactions?.length) {
     const list = element('ol', 'search-list');
@@ -391,6 +401,7 @@ export function announcementFor(entry) {
     return `${text} ${entry.data.type === 'income' ? 'Receita' : 'Despesa'} de ${formatCurrency(entry.data.amount)}.`;
   }
   if (entry.kind === 'batch' && entry.data) return `${text} ${entry.data.items.length} movimentações aguardando aprovação.`;
+  if (entry.kind === 'search' && entry.data?.months?.length > 1) return `${text} Gráfico de barras com ${entry.data.months.length} meses no cartão.`;
   if (entry.kind === 'summary' && entry.data) {
     const { data } = entry;
     return `${text} Despesas de ${formatCurrency(data.expenses / 100)} e receitas de ${formatCurrency(data.incomes / 100)} na conta ${data.account}.`;
