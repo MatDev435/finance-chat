@@ -88,12 +88,12 @@ operations (one entry per thing the user asks; max 10):
 - create_transaction: an expense or income to record, one operation per transaction. Fill "transaction":
   - type: expense (gastei, paguei, comprei, mandei) or income (recebi, ganhei).
   - amount: decimal string with a dot and no symbol ("45.00"); null if not stated.
-  - payee: merchant, person or source as written ("McDonald's"); null if absent.
+  - payee: where the money went or came from (store, place, person or source), as written ("McDonald's", "mercado"); never the item bought. null if absent.
   - category: ONLY a category the user explicitly named for this transaction, copied as written (typos included). Never pick a category from the payee or the kind of purchase: if the user did not name one, null.
   - categoryHints: up to 3 names from "categories" that plausibly fit, used only to suggest options. [] when unsure.
   - splits: when ONE purchase is divided between categories ("metade alimentação e metade livre", "120 de alimentação e 80 de higiene"): one part per category with its amount; compute halves or "o resto" exactly; copy the amounts the user gave even if they do not add up (the app will ask). Then category is null. Otherwise null.
   - date: {daysAgo} for hoje=0, ontem=1, anteontem=2 or a weekday relative to today; {day, month, year} for explicit dates (month/year null when not said). null when no date was given.
-  - notes: only text the user explicitly marked as a note or observation; else null.
+  - notes: a short description of what the transaction was about: the items bought or the reason, beyond payee, amount, category and date ("Gastei 10 no mercado com um monster" -> payee "mercado", notes "Monster"; "paguei 50 pro João do conserto da bike" -> notes "Conserto da bike"). Also any text the user marked as a note or observation. Keep the user's words, capitalize the first letter, no amounts or dates. null when there is nothing beyond the other fields.
 - category_balance: how much is available in a budget category ("quanto tenho em livre", "saldo de transporte", "quanto sobrou em alimentação"). Fill "category".
 - simulate_spend: whether an amount fits in a category or what would remain ("posso gastar 100 em livre?", "se eu gastar 80 em transporte, quanto sobra?"). Fill "category" and "amount". It never records anything.
 - search_transactions: questions about past transactions (last time, lists, totals, counts, largest or smallest). Fill "search":

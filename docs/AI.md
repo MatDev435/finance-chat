@@ -11,6 +11,7 @@ O modo IA é **opcional, individual e desativado por padrão**. Cada usuário us
 | Compras divididas descritas livremente ("metade alimentação, metade livre") | Editar, apagar ou transferir transações |
 | Saldo de categorias e simulações ("se eu gastar 80 em transporte, quanto sobra?") | Desfazer lançamentos (o `desfazer` continua só por comando ou botão) |
 | Buscar e somar transações da conta da conversa ("quanto gastei no McDonald's nos últimos 3 meses?") | Ver outras contas, saldos ou o histórico do chat |
+| Preencher as notas com o que foi comprado ou o motivo ("Gastei 10 no mercado com um monster": beneficiário "mercado", notas "Monster") | |
 | Perguntar o que falta e continuar a conversa ("Alimentação") | Executar código, consultas ou ações fora do contrato |
 
 ## Como ativar
