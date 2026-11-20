@@ -2,6 +2,8 @@
 
 O parser está em `src/parser.js` e é determinístico, sem modelo de linguagem.
 
+Com o modo IA ativado ([AI.md](AI.md)), o parser continua sendo a primeira tentativa. O resultado só é usado quando `isCompleteParse` (`src/parse-check.js`) confirma que nenhum campo livre engoliu outro lançamento ou pergunta e quando a categoria existe exatamente no orçamento. Caso contrário, a mensagem inteira vai para a IA. Com a IA desativada, tudo abaixo funciona exatamente como antes.
+
 ## Operações
 
 | Palavras iniciais | Tipo |

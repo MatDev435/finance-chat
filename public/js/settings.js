@@ -1,7 +1,8 @@
 import { api } from './api.js';
+import { createAiSettings } from './ai-settings.js';
 
 /** Settings panel: default account, connection summary, session. */
-export function createSettings({ panel, onDefaultSaved, onEditConnection, onLogout, onClose }) {
+export function createSettings({ panel, onDefaultSaved, onAiChange, onEditConnection, onLogout, onClose }) {
   const form = panel.querySelector('#default-account-form');
   const select = panel.querySelector('#default-account-select');
   const missing = panel.querySelector('#default-missing');
@@ -46,6 +47,8 @@ export function createSettings({ panel, onDefaultSaved, onEditConnection, onLogo
     }
   });
 
+  const aiSettings = createAiSettings({ section: panel.querySelector('#ai-settings'), onChange: onAiChange });
+
   panel.querySelector('#edit-connection').addEventListener('click', () => onEditConnection());
   panel.querySelector('#settings-logout').addEventListener('click', () => onLogout());
   panel.querySelector('#settings-back').addEventListener('click', () => onClose());
@@ -65,6 +68,8 @@ export function createSettings({ panel, onDefaultSaved, onEditConnection, onLogo
       summaryRow('Sync ID', connection.syncId);
       summaryRow('Acesso', connection.authMethod === 'token' ? 'Chave de API' : 'Senha do servidor');
       summaryRow('Criptografia', connection.hasEncryptionPassword ? 'Senha salva' : 'Não usada');
+
+      aiSettings.open();
 
       const user = panel.querySelector('#session-user');
       user.textContent = 'Conectado como ';

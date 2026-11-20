@@ -21,6 +21,8 @@ export function resolveCategory(categories, requested, categoryId) {
   if (!category) {
     const error = validationError(notFoundMessage(requested, suggestions));
     error.suggestions = suggestions;
+    // Lets the hybrid mode tell "the typed category does not exist" apart from other errors.
+    error.categoryMiss = true;
     throw error;
   }
   return category;
@@ -29,7 +31,9 @@ export function resolveCategory(categories, requested, categoryId) {
 /**
  * Validates a parsed command against the budget. The account comes from the
  * selected chat (stable account id); the category is matched by name because
- * the user types it in the message.
+ * the user types it in the message. A category already resolved to an id
+ * (`command.categoryId`, `split.categoryId`: the user picked or confirmed it)
+ * is checked by id instead.
  */
 export function validateCommand(command, { accounts, categories, accountId, categoryId }) {
   const account = requireChatAccount(accounts, accountId);
@@ -37,7 +41,7 @@ export function validateCommand(command, { accounts, categories, accountId, cate
   if (command.splits) {
     const splits = command.splits.map((split) => {
       try {
-        const category = resolveCategory(categories, split.category);
+        const category = resolveCategory(categories, split.category, split.categoryId);
         return { amount: split.amount, category: { id: category.id, name: category.name } };
       } catch (error) {
         // Suggestions stay in the message; the one-click choice applies only to single-category messages.
@@ -48,7 +52,7 @@ export function validateCommand(command, { accounts, categories, accountId, cate
     return { valid: true, command, account, category: null, splits };
   }
 
-  const category = resolveCategory(categories, command.category, categoryId);
+  const category = resolveCategory(categories, command.category, categoryId ?? command.categoryId);
 
   return {
     valid: true,

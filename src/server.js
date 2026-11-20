@@ -13,6 +13,8 @@ import { createPendingStore } from './pending.js';
 import { createSecretBox } from './secrets.js';
 import { createUndoStore } from './undo.js';
 import { createUserStore } from './user-store.js';
+import { createAiStore } from './ai/store.js';
+import { createOpenAIClient } from './ai/openai-client.js';
 
 let config;
 try {
@@ -35,6 +37,8 @@ const app = createApp({
   config,
   auth: createAuth({ db, appSecret: config.appSecret }),
   store: createUserStore(db, createSecretBox(config.appSecret)),
+  aiStore: createAiStore(db, createSecretBox(config.appSecret, 'openai-api-key-v1')),
+  openai: createOpenAIClient(),
   actual,
   pending: createPendingStore(),
   undo: createUndoStore(),

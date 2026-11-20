@@ -61,6 +61,15 @@ export function createUndoStore({ now = Date.now, ttlMs = UNDO_TTL_MS } = {}) {
       return { id: entry.id, accountId: entry.accountId, ...entry.data };
     },
 
+    /**
+     * Ends the chat's undo window. Used after a batch is written: "desfazer"
+     * must never delete an older transaction while the user means the batch.
+     */
+    discard(userId, accountId) {
+      const entry = byId.get(bySlot.get(slotOf(userId, accountId)));
+      if (entry && !entry.busy) remove(entry);
+    },
+
     finish(id) {
       const entry = byId.get(id);
       if (entry) remove(entry);

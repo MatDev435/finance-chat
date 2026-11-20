@@ -51,9 +51,10 @@ test('the transaction goes to the selected account, not to another one', async (
   const { mapped } = await prepareTransaction(api, { accountId: 'acc-inter', command: command(), date: '2026-11-16' });
   const result = await commitTransaction(api, mapped);
   assert.equal(budget.transactions.length, 1);
-  const { id, ...stored } = budget.transactions[0];
+  const { id, payee, ...stored } = budget.transactions[0];
   assert.deepEqual(result, { account: { id: 'acc-inter', name: 'Inter' }, synced: true, transactionId: id });
   assert.deepEqual(stored, { date: '2026-11-16', amount: -4000, payee_name: 'mercado', category: 'cat-food', account: 'acc-inter' });
+  assert.equal(budget.payees.find((item) => item.id === payee).name, 'mercado', 'the fake, like Actual, links the payee by name');
 });
 
 test('preview refuses unknown, closed and off-budget accounts without any fallback', async () => {

@@ -28,8 +28,9 @@ const state = {
   history: null,
   busy: new Set(),
   /**
-   * history entry id → live action for that message: { type: 'preview', accountId, pendingId },
-   * { type: 'suggestions', accountId, message, suggestions } or
+   * history entry id → live action for that message: { type: 'preview' | 'batch', accountId, pendingId },
+   * { type: 'suggestions', accountId, message, suggestions },
+   * { type: 'clarify', accountId, draftId, missing, categories } or
    * { type: 'undo', accountId, undoId, previewEntryId }. Memory only: never persisted.
    */
   live: new Map(),
@@ -146,10 +147,23 @@ const settings = createSettings({
     state.me.settings = saved;
     renderAccountList();
   },
+  onAiChange: (ai) => {
+    state.me.ai = ai;
+    updateComposerHint();
+  },
   onEditConnection: () => openSetup({ editing: true }),
   onLogout: () => logout(),
   onClose: () => goBack(),
 });
+
+/** The composer invites free text when the AI mode is usable (enabled and with a key). */
+function updateComposerHint() {
+  const aiActive = Boolean(state.me?.ai?.enabled && state.me.ai.hasKey);
+  messageInput.placeholder = aiActive ? 'Escreva como preferir: lançamentos, saldos ou buscas...' : 'Digite uma movimentação...';
+  $('#privacy-text').textContent = aiActive
+    ? 'IA ativa: o que o Finance Chat não entender sozinho vai para o modelo escolhido.'
+    : 'Você pode escrever em linguagem natural, como se estivesse falando.';
+}
 
 function openSettings() {
   if (!state.me) return;
@@ -302,6 +316,7 @@ async function enterWorkspace(me) {
   state.me = me;
   state.history = createHistory(storage, me.user.id);
   showScreen('workspace');
+  updateComposerHint();
   $('#empty-chat-text').textContent = 'Cada conta do Actual Budget tem a sua conversa. As movimentações enviadas em uma conversa são registradas somente naquela conta.';
   renderView();
   await loadAccounts({ initial: true });
@@ -450,7 +465,8 @@ function isVisible(accountId) {
 function liveActionsFor(accountId, entry) {
   const item = state.live.get(entry.id);
   if (!item || item.accountId !== accountId) return undefined;
-  if (item.type === 'preview' && entry.kind === 'preview' && entry.status === 'pending') return previewActions(accountId, entry.id);
+  if ((item.type === 'preview' || item.type === 'batch') && entry.kind === item.type && entry.status === 'pending') return previewActions(accountId, entry.id);
+  if (item.type === 'clarify' && entry.kind === 'clarify' && entry.status === 'pending') return clarifyActions(accountId, entry.id, item);
   if (item.type === 'suggestions') return { suggestions: item.suggestions, onPick: (category) => pickSuggestion(accountId, entry.id, category) };
   if (item.type === 'undo') return { onUndo: () => undoLive(accountId, entry.id) };
   return undefined;
@@ -498,46 +514,83 @@ function handleChatError(accountId, error, text = error.message) {
   if (error.code === 'CONNECTION_REQUIRED' || error.code === 'CONNECTION_UNREADABLE') openSetup({ message: error.message });
 }
 
+/** Display data of one transaction preview (history-safe fields only). */
+function previewData(preview) {
+  return {
+    type: preview.command.type, amount: preview.command.amount, description: preview.command.description,
+    category: preview.category?.name ?? '', account: preview.account.name, date: preview.transaction.date, notes: preview.command.notes,
+    parts: preview.splits?.map((split) => ({ category: split.category.name, amount: split.amount })),
+  };
+}
+
+function batchData(data) {
+  const items = data.items.map((preview) => ({ ...previewData(preview), category: preview.category?.name ?? null }));
+  const total = (type) => items.filter((item) => item.type === type).reduce((sum, item) => sum + Math.round(item.amount * 100), 0) / 100;
+  return { items, expenses: total('expense'), incomes: total('income'), account: data.account?.name ?? '' };
+}
+
+/**
+ * Shows one server answer in the chat. Every kind the API can return is
+ * handled here: undo, category balance and simulation, single and batch
+ * previews, clarifications of an AI draft, searches, plain texts, several
+ * answers at once, and extra notes.
+ */
+function renderResponse(accountId, data) {
+  const ai = data.source === 'ai';
+  const base = { role: 'assistant', ...(ai ? { ai: true } : {}) };
+  if (['clarify', 'transaction', 'batch'].includes(data.kind)) retireLiveActions(accountId, ['clarify']);
+
+  if (data.kind === 'undo') {
+    for (const [entryId, item] of state.live) {
+      if (item.type === 'undo' && item.undoId === data.undoneId) {
+        removeLive(entryId);
+        markUndone(accountId, item.previewEntryId);
+      }
+    }
+    addEntry(accountId, { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message });
+  } else if (data.kind === 'category-available' || data.kind === 'text') {
+    addEntry(accountId, { ...base, kind: 'text', text: data.message });
+  } else if (data.kind === 'category-can-spend') {
+    addEntry(accountId, {
+      ...base, kind: 'spending', text: data.message,
+      data: { category: data.category.name, available: data.available, requested: data.requested, remaining: data.remaining, canSpend: data.canSpend },
+    });
+  } else if (data.kind === 'transaction') {
+    const entryId = newEntryId();
+    state.live.set(entryId, { type: 'preview', accountId, pendingId: data.pendingId });
+    addEntry(accountId, { ...base, id: entryId, kind: 'preview', text: PREVIEW_TEXT, status: 'pending', data: previewData(data.preview) });
+    updateAccountName(data.preview.account);
+  } else if (data.kind === 'batch') {
+    const entryId = newEntryId();
+    state.live.set(entryId, { type: 'batch', accountId, pendingId: data.pendingId });
+    addEntry(accountId, { ...base, id: entryId, kind: 'batch', text: `Entendi! Encontrei ${data.items.length} movimentações. Confira todas antes de aprovar.`, status: 'pending', data: batchData(data) });
+    if (data.account) updateAccountName(data.account);
+  } else if (data.kind === 'clarify') {
+    const entryId = newEntryId();
+    state.live.set(entryId, { type: 'clarify', accountId, draftId: data.draftId, missing: data.missing, categories: data.categories });
+    addEntry(accountId, { ...base, id: entryId, kind: 'clarify', text: data.message, status: 'pending', data: { items: data.items, missing: data.missing } });
+  } else if (data.kind === 'search') {
+    addEntry(accountId, { ...base, kind: 'search', text: data.message, data: data.search });
+  } else if (data.kind === 'answers') {
+    for (const answer of data.answers) renderResponse(accountId, { ...answer, source: data.source });
+  } else {
+    addEntry(accountId, { ...base, kind: 'text', text: data.message || 'Pronto.' });
+  }
+  for (const note of data.notes || []) addEntry(accountId, { role: 'assistant', kind: 'text', text: note });
+}
+
 /**
  * Sends a message of this chat. `categoryId` is set when the user picked a
  * suggested category; `echo` is the text shown as the user's message.
  */
 async function sendMessage(accountId, message, { categoryId, echo = message } = {}) {
   if (state.busy.has(accountId)) return;
-  retireLiveActions(accountId, ['preview', 'suggestions']);
+  retireLiveActions(accountId, ['preview', 'batch', 'suggestions']);
   addEntry(accountId, { role: 'user', kind: 'text', text: echo });
   setBusy(accountId, true);
   try {
     const data = await api('POST', '/api/chat/preview', { accountId, message, ...(categoryId ? { categoryId } : {}) });
-    if (data.kind === 'undo') {
-      for (const [entryId, item] of state.live) {
-        if (item.type === 'undo' && item.undoId === data.undoneId) {
-          removeLive(entryId);
-          markUndone(accountId, item.previewEntryId);
-        }
-      }
-      addEntry(accountId, { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message });
-    } else if (data.kind === 'category-available') {
-      addEntry(accountId, { role: 'assistant', kind: 'text', text: data.message });
-    } else if (data.kind === 'category-can-spend') {
-      addEntry(accountId, {
-        role: 'assistant', kind: 'spending', text: data.message,
-        data: { category: data.category.name, available: data.available, requested: data.requested, remaining: data.remaining, canSpend: data.canSpend },
-      });
-    } else {
-      const { preview } = data;
-      const entryId = newEntryId();
-      state.live.set(entryId, { type: 'preview', accountId, pendingId: data.pendingId });
-      addEntry(accountId, {
-        id: entryId, role: 'assistant', kind: 'preview', text: PREVIEW_TEXT, status: 'pending',
-        data: {
-          type: preview.command.type, amount: preview.command.amount, description: preview.command.description,
-          category: preview.category?.name ?? '', account: preview.account.name, date: preview.transaction.date, notes: preview.command.notes,
-          parts: preview.splits?.map((split) => ({ category: split.category.name, amount: split.amount })),
-        },
-      });
-      updateAccountName(preview.account);
-    }
+    renderResponse(accountId, data);
   } catch (error) {
     if (error.suggestions.length) {
       const entryId = newEntryId();
@@ -549,6 +602,57 @@ async function sendMessage(accountId, message, { categoryId, echo = message } = 
   } finally {
     setBusy(accountId, false);
     if (isVisible(accountId)) focusComposer();
+  }
+}
+
+/** Buttons of an AI clarification: pick a category for a missing field, or discard the draft. */
+function clarifyActions(accountId, entryId, item) {
+  return {
+    missing: item.missing,
+    categories: item.categories,
+    onChoose: (missing, category) => chooseDraftCategory(accountId, entryId, missing, category),
+    onDiscard: () => discardDraft(accountId, entryId),
+  };
+}
+
+/** Marks a clarification card with its final status and drops its buttons. */
+function settleClarify(accountId, entryId, status) {
+  removeLive(entryId);
+  state.history?.update(accountId, entryId, { status });
+  if (isVisible(accountId)) renderChat();
+}
+
+async function chooseDraftCategory(accountId, entryId, missing, category) {
+  const item = state.live.get(entryId);
+  if (!item || state.busy.has(accountId)) return;
+  addEntry(accountId, { role: 'user', kind: 'text', text: `${missing.label}: ${category.name}` });
+  setBusy(accountId, true);
+  try {
+    const data = await api('POST', '/api/chat/draft', { accountId, draftId: item.draftId, item: missing.item, part: missing.part, categoryId: category.id });
+    settleClarify(accountId, entryId, 'done');
+    renderResponse(accountId, data);
+  } catch (error) {
+    if (error.code === 'NO_DRAFT') settleClarify(accountId, entryId, 'cancelled');
+    else if (isVisible(accountId)) renderChat();
+    handleChatError(accountId, error);
+  } finally {
+    setBusy(accountId, false);
+    if (isVisible(accountId)) focusComposer();
+  }
+}
+
+async function discardDraft(accountId, entryId) {
+  const item = state.live.get(entryId);
+  if (!item || state.busy.has(accountId)) return;
+  setBusy(accountId, true);
+  try {
+    const data = await api('POST', '/api/chat/cancel', { accountId, draftId: item.draftId });
+    settleClarify(accountId, entryId, 'cancelled');
+    addEntry(accountId, { role: 'assistant', kind: 'text', text: data.message });
+  } catch (error) {
+    handleChatError(accountId, error);
+  } finally {
+    setBusy(accountId, false);
   }
 }
 
@@ -597,6 +701,13 @@ async function confirmPreview(accountId, entryId, ui) {
   setBusy(accountId, true);
   try {
     const data = await api('POST', '/api/chat/confirm', { pendingId: item.pendingId });
+    if (data.kind === 'batch') {
+      // A batch reports each item; an interrupted one is a warning, never something to resend blindly.
+      settlePreview(accountId, entryId, ui, data.complete ? 'confirmed' : 'partial');
+      addEntry(accountId, { role: 'assistant', kind: data.complete && data.synced ? 'text' : 'warning', text: data.message });
+      updateAccountName(data.account);
+      return;
+    }
     settlePreview(accountId, entryId, ui, 'confirmed');
     const success = { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message };
     if (data.undoId) {
@@ -611,7 +722,7 @@ async function confirmPreview(accountId, entryId, ui) {
   } catch (error) {
     settlePreview(accountId, entryId, ui, 'failed');
     const text = error.code === 'NETWORK'
-      ? 'Não foi possível confirmar se a movimentação foi registrada. Verifique no Actual Budget antes de enviar novamente.'
+      ? `Não foi possível confirmar se ${item.type === 'batch' ? 'as movimentações foram registradas' : 'a movimentação foi registrada'}. Verifique no Actual Budget antes de enviar novamente.`
       : error.message;
     handleChatError(accountId, error, text);
   } finally {
@@ -661,7 +772,7 @@ async function cancelPreview(accountId, entryId, ui) {
     // Without its id the preview can no longer be confirmed from this page; it expires on the server.
   } finally {
     settlePreview(accountId, entryId, ui, 'cancelled');
-    addEntry(accountId, { role: 'assistant', kind: 'text', text: 'Movimentação cancelada.' });
+    addEntry(accountId, { role: 'assistant', kind: 'text', text: item.type === 'batch' ? 'Movimentações canceladas. Nada foi registrado.' : 'Movimentação cancelada.' });
     setBusy(accountId, false);
   }
 }

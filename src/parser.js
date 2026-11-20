@@ -80,7 +80,7 @@ function parseCanSpendQuestion(text) {
   return { kind: 'category-can-spend', amount, category: normalizeCategory(remainder) };
 }
 
-const MAX_SPLITS = 10;
+export const MAX_SPLITS = 10;
 const SPLIT_AMOUNT = String.raw`(?:r\$|\$)?\s*\d[\d.,]*(?:\s+reais?)?`;
 const SPLIT_VALUE_FIRST = new RegExp(String.raw`^(${SPLIT_AMOUNT})\s+(?:(?:de|em|para|pra|com|na|no)\s+)?(.+)$`, 'i');
 const SPLIT_VALUE_LAST = new RegExp(String.raw`^(.+?):?\s+(?:(?:de|com)\s+)?(${SPLIT_AMOUNT})$`, 'i');
@@ -106,9 +106,14 @@ export function parseSplits(text, total) {
     const [amountText, categoryText] = valueFirst ? [valueFirst[1], valueFirst[2]] : [valueLast[2], valueLast[1]];
     return { amount: parseAmount(amountText), category: normalizeCategory(categoryText) };
   });
+  checkSplitTotal(splits, total);
+  return splits;
+}
+
+/** The parts of a split must add up exactly to the total; nothing is ever adjusted silently. */
+export function checkSplitTotal(splits, total) {
   const sum = splits.reduce((acc, split) => acc + amountToCents(split.amount), 0);
   if (sum !== amountToCents(total)) fail(`A soma das partes (${centsText(sum)}) é diferente do total (${centsText(amountToCents(total))}).`);
-  return splits;
 }
 
 export function parseCommand(input) {

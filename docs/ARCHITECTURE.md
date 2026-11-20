@@ -8,7 +8,9 @@ Um único processo Node.js, sem framework de backend nem de frontend, sem etapa 
 navegador ── HTTP ──> src/server.js ─> src/app.js (rotas)
                                           ├─ auth.js        (usuários, sessões)        ─┐
                                           ├─ user-store.js  (conexão e preferências)  ─┴─> SQLite (better-sqlite3)
-                                          ├─ parser.js / validation.js / transaction-mapping.js
+                                          ├─ chat.js (despacho) ─ parser.js / parse-check.js / drafts.js / search.js
+                                          │      └─ ai/ (opcional) ─ interpreter.js ─ openai-client.js ─> api.openai.com
+                                          ├─ validation.js / transaction-mapping.js / budget-operations.js
                                           └─ actual.js (fila exclusiva) ─> @actual-app/api ─> servidor Actual do usuário
 ```
 
@@ -19,7 +21,17 @@ O mesmo processo serve o frontend estático (`public/`) e a API (`/api/*`) na me
 | Arquivo | Responsabilidade |
 | --- | --- |
 | `server.js` | Ponto de entrada: valida a configuração, instala o timeout do `fetch`, importa a API do Actual, abre o banco, inicia o HTTP e encerra de forma limpa no `SIGTERM`. |
-| `app.js` | `createApp()`: tabela de rotas, autenticação das rotas, CSRF, limites de tentativas, mapeamento de erros e textos das respostas. |
+| `app.js` | `createApp()`: tabela de rotas, autenticação das rotas, CSRF, limites de tentativas e mapeamento de erros. As rotas do chat delegam para `chat.js`. |
+| `chat.js` | Despacho de cada mensagem: parser primeiro, verificação de completude, IA opcional, prévias simples e em lote, rascunhos, confirmação e desfazer. |
+| `chat-text.js` | Todos os textos do chat, montados por templates a partir de dados validados. |
+| `parse-check.js` | `isCompleteParse`: recusa resultados do parser que podem ter engolido outro lançamento ou pergunta (só no modo IA). |
+| `drafts.js` | Lançamentos interpretados pela IA antes da prévia: resolução de categorias, campos que faltam, atualizações (só de campos que faltam), regras de divisão. |
+| `conversation.js` | Contextos curtos por usuário e conta: rascunho pendente e filtros da última busca (15 minutos, em memória). |
+| `search.js`, `periods.js` | Busca de transações pela AQL do Actual, restrita à conta da conversa; períodos convertidos em datas. |
+| `ai/models.js`, `ai/pricing.js` | Modelos oferecidos (GPT-6 com Structured Outputs) e tabela de preços versionada. |
+| `ai/store.js` | Configuração de IA por usuário (chave cifrada) e registro de consumo. |
+| `ai/openai-client.js` | Cliente HTTP da Responses API e da listagem de modelos, com erros mapeados e leitura do uso de tokens. |
+| `ai/plan-schema.js`, `ai/plan.js`, `ai/interpreter.js` | Contrato com o modelo (instruções fixas e JSON Schema), validação do plano e a chamada única por interpretação. |
 | `http.js` | Utilitários HTTP: JSON com limite de tamanho, cookies, IP do cliente, detecção de HTTPS, cabeçalhos de segurança, arquivos estáticos. |
 | `config.js` | Lê e valida variáveis de ambiente. Recusa iniciar sem `APP_SECRET`. |
 | `db.js` | Abre o SQLite (WAL, chaves estrangeiras, permissão 600) e aplica as migrações. |
@@ -28,14 +40,14 @@ O mesmo processo serve o frontend estático (`public/`) e a API (`/api/*`) na me
 | `secrets.js` | AES-256-GCM com chave derivada da `APP_SECRET` (HKDF) e dados vinculados ao usuário e ao campo. |
 | `user-store.js` | Conexão de cada usuário com o Actual (cifrada) e preferência de conta padrão. Valida o formulário de conexão. |
 | `actual.js` | Gerenciador da API do Actual: fila exclusiva, troca de contexto por usuário, cache por usuário, mensagens de erro claras. |
-| `budget-operations.js` | Operações sobre o orçamento aberto: listar contas, preparar a prévia, gravar a transação confirmada. |
+| `budget-operations.js` | Operações sobre o orçamento aberto: listar contas, preparar a prévia (simples ou de itens da IA), gravar a transação confirmada ou o lote. |
 | `accounts.js` | Regras de conta: só contas abertas e dentro do orçamento; seleção estritamente por ID. |
 | `parser.js` | Parser determinístico de comandos e perguntas em português. |
 | `validation.js` | Valida conta (por ID) e categoria (por nome) contra o orçamento. |
 | `transaction-mapping.js` | Converte o comando para o formato do Actual (centavos, `payee_name`, `notes`). |
 | `budget-availability.js`, `category-queries.js` | Consultas de saldo por categoria. |
 | `undo.js` | Última transação confirmada de cada conversa, desfazível por 10 minutos, de uso único (em memória). |
-| `pending.js` | Prévias aguardando confirmação: em memória, uma por usuário e conta, com ID de uso único e expiração. |
+| `pending.js` | Prévias (simples ou lotes) aguardando confirmação: em memória, uma por usuário e conta, com ID de uso único e expiração. |
 | `backup.js` | Backup online do SQLite com rotação. |
 | `fetch-timeout.js` | Prazo de 60 s para todo `fetch`. |
 
@@ -68,6 +80,10 @@ Cada troca de contexto faz login e sincronização no servidor Actual do usuári
 4. `POST /api/chat/cancel` descarta a prévia.
 5. Como `addTransactions()` não devolve o ID criado, a confirmação lista as transações da conta naquela data antes e depois da gravação, dentro da mesma operação exclusiva e sem sincronizar entre as duas leituras. A transação nova é a diferença. Esse ID permite **desfazer** (`POST /api/chat/undo`), que só apaga a transação se ela continuar na mesma conta, data e valor.
 
+## Modo IA
+
+Opcional e por usuário (detalhes em [AI.md](AI.md)). O parser sempre roda primeiro; a IA só interpreta (uma chamada à Responses API com Structured Outputs) e devolve um plano que o backend valida. Perguntas usam os mesmos serviços de leitura (saldo, simulação, busca); lançamentos usam a mesma validação, prévia, confirmação e gravação do parser. Lotes são confirmados uma vez, revalidados antes da primeira gravação e gravados em ordem, parando na primeira falha.
+
 ## Frontend (`public/`)
 
 HTML, CSS e JavaScript (módulos ES nativos), sem framework e sem build.
@@ -82,6 +98,7 @@ HTML, CSS e JavaScript (módulos ES nativos), sem framework e sem build.
 | `js/history.js` | Histórico visual em `localStorage` (10 mensagens por conversa, por usuário e ID da conta). |
 | `js/navigation.js` | Regras puras de navegação (conta inicial, seleção, painel visível). |
 | `js/setup.js`, `js/settings.js` | Formulário de conexão e painel de configurações. |
+| `js/ai-settings.js`, `js/ai-format.js` | Seção de IA das configurações (switch, chave, modelo, teste) e formatação do consumo. |
 | `manifest.webmanifest`, `icons/` | Manifesto do app instalável e ícones (192/512, maskable, apple-touch-icon). |
 | `sw.js` | Service worker: rede primeiro e cache só dos arquivos da interface; ignora `/api/*` e `/health`. |
 

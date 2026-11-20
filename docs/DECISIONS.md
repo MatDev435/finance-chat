@@ -12,9 +12,29 @@ O projeto roda como uma pasta Node.js comum, gerenciada pelo systemd. Docker nã
 
 `better-sqlite3` já era dependência do `@actual-app/api`, que guarda os orçamentos em SQLite. Usá-lo diretamente não acrescenta pacote nem compilação nativa. O `node:sqlite` foi descartado porque exige Node ≥ 22.5, e a versão do Node no servidor não é garantida.
 
-## Parser determinístico, sem IA
+## Parser determinístico primeiro, IA opcional
 
-Regras fixas em `src/parser.js`. Nenhum modelo de linguagem ou serviço externo interpreta mensagens.
+Regras fixas em `src/parser.js` continuam interpretando as mensagens, sem serviços externos. Desde a versão 0.4, cada usuário pode ativar um modo IA (OpenAI), desativado por padrão. O parser é sempre a primeira tentativa: a IA só é chamada quando ele não entende a mensagem ou quando o resultado pode ser parcial (`isCompleteParse`). Detalhes em [AI.md](AI.md).
+
+## Structured Outputs com um plano, sem ciclos de ferramentas
+
+O modelo devolve um único plano JSON (Structured Outputs, `strict: true`) e o backend decide o que executar. Tool calling com ciclos exigiria várias chamadas por mensagem e mandaria resultados financeiros à OpenAI; as buscas não precisam disso, porque o modelo só traduz a pergunta em filtros e o backend calcula tudo. As respostas são textos fixos, sem segunda chamada.
+
+## A IA não escolhe categorias, não apaga e não grava
+
+A categoria vem sempre do usuário (escrita ou escolhida na tela); as sugestões do modelo são só sugestões. Lançamentos sempre terminam numa prévia confirmada. O `desfazer` continua sendo apenas comando ou botão. Mensagens que misturam perguntas e lançamentos só respondem às perguntas.
+
+## Lotes sem desfazer
+
+Um lote é confirmado uma vez e gravado em ordem, parando na primeira falha. Desfazer N gravações com resultados possivelmente incertos no meio seria arriscado, então lotes não são desfeitos pelo Finance Chat, e o desfazer da conversa é encerrado depois de um lote.
+
+## Busca pela AQL, restrita à conta da conversa
+
+A busca usa `q()` + `aqlQuery()` do `@actual-app/api`, executadas em SQL na cópia local, com filtros montados pelo backend. A conta é sempre a da conversa. O comportamento de divisões e transferências foi verificado no motor real (`test/search-aql.test.js`).
+
+## Custo gravado com a tabela de preços vigente
+
+Cada chamada guarda os tokens informados pela OpenAI e o custo calculado com a tabela de preços vigente naquele momento (versionada em `src/ai/pricing.js`), em nanodólares inteiros. Novos preços nunca reescrevem o histórico, e um preço desconhecido nunca é inventado.
 
 ## Contas por ID estável
 

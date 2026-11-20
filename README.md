@@ -10,7 +10,7 @@ Quanto ainda tenho em Alimentação?
 Posso gastar R$ 50 com Alimentação?
 ```
 
-A interpretação é feita por um **parser determinístico** (regras fixas, sem IA, sem LLM, sem serviços externos). A aplicação é um único processo Node.js leve, com três dependências e SQLite embutido. Docker não é necessário.
+A interpretação é feita por um **parser determinístico** (regras fixas, sem serviços externos). Opcionalmente, cada usuário pode ativar um **modo IA** com a própria chave da OpenAI, para mensagens livres, vários lançamentos de uma vez e buscas no histórico: o parser continua sendo a primeira tentativa, e toda gravação continua exigindo confirmação. A aplicação é um único processo Node.js leve, com três dependências e SQLite embutido. Docker não é necessário.
 
 ## Funcionalidades
 
@@ -24,6 +24,7 @@ A interpretação é feita por um **parser determinístico** (regras fixas, sem 
 - **Configuração guiada** da conexão com o Actual, com tutorial e teste de conexão.
 - **Datas no texto** (`ontem`, `dia 12`, `12/11`), **compras divididas** em várias categorias, **sugestão de categoria** para erros de digitação e **desfazer** o último lançamento. Tudo por regras fixas, sem IA.
 - **App instalável (PWA)** no celular e no computador: ícone na tela inicial, abre em tela cheia, sem loja e sem rastreamento.
+- **Modo IA opcional (OpenAI)**, desativado por padrão e configurado por usuário (chave própria, cifrada no servidor, e modelo GPT-6 à escolha, com GPT-6 Luna como padrão). Entende mensagens livres, vários lançamentos numa mensagem, compras divididas descritas livremente, saldos, simulações e buscas como "quanto gastei no McDonald's nos últimos 3 meses?". A IA só interpreta: nunca grava sem confirmação, nunca escolhe a categoria e nunca apaga nada. O consumo de tokens e o custo estimado de cada usuário aparecem nas configurações. Veja [docs/AI.md](docs/AI.md).
 
 ## Requisitos
 
@@ -66,7 +67,9 @@ O banco fica em `DATA_DIR/finance-chat.sqlite` e é criado na primeira execuçã
 - usuários (hash `scrypt` das senhas);
 - sessões (somente o hash dos refresh tokens);
 - conexão de cada usuário com o Actual (senhas cifradas com AES-256-GCM);
-- preferências (conta padrão).
+- preferências (conta padrão);
+- configuração de IA de cada usuário (ativação, modelo e chave da OpenAI cifrada com AES-256-GCM);
+- consumo da OpenAI por chamada (tokens e custo estimado, nunca o conteúdo das mensagens).
 
 Mensagens do chat **não** são guardadas no servidor. O arquivo é criado com permissão `600` e o diretório com `700`.
 
@@ -122,7 +125,7 @@ npm test         # testes (node:test, sem dependências extras)
 npm run backup   # backup online do SQLite em DATA_DIR/backups
 ```
 
-Os testes usam SQLite em memória e um Actual simulado. Nenhum teste acessa um orçamento real.
+Os testes usam SQLite em memória e um Actual simulado. Nenhum teste acessa um orçamento real. A busca também é verificada no motor real do `@actual-app/api`, offline, com um orçamento fictício criado numa pasta temporária. Nenhum teste chama a OpenAI: as respostas do modelo são simuladas, então `npm test` não precisa de chave, créditos nem internet.
 
 ## Deploy, atualização e backup
 
@@ -134,5 +137,6 @@ Os testes usam SQLite em memória e um Actual simulado. Nenhum teste acessa um o
 - [Arquitetura](docs/ARCHITECTURE.md)
 - [API HTTP](docs/API.md)
 - [Parser](docs/PARSER.md)
+- [Modo IA (OpenAI)](docs/AI.md)
 - [Segurança](docs/SECURITY.md)
 - [Decisões técnicas](docs/DECISIONS.md)

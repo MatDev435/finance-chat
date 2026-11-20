@@ -44,6 +44,43 @@ export const MIGRATIONS = [
     updated_at INTEGER NOT NULL
   ) STRICT;
   `,
+  `
+  -- Optional AI mode, per user. api_key is sealed with AES-256-GCM (src/secrets.js,
+  -- purpose "openai-api-key-v1", bound to the user id); the master key is APP_SECRET.
+  CREATE TABLE ai_settings (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+    model TEXT NOT NULL,
+    api_key TEXT,
+    key_updated_at INTEGER,
+    updated_at INTEGER NOT NULL
+  ) STRICT;
+
+  -- One row per OpenAI request made by the Finance Chat. No message or model output is
+  -- stored. Token counts come from the API; NULL means the API gave no usage (timeout).
+  -- cost_nano_usd (1e-9 USD) is computed with the price table in force when the row is
+  -- written and never recomputed; NULL means the cost could not be estimated safely.
+  CREATE TABLE ai_usage (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    local_month TEXT NOT NULL,
+    purpose TEXT NOT NULL CHECK (purpose IN ('chat', 'test')),
+    model TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    response_id TEXT UNIQUE,
+    usage_known INTEGER NOT NULL CHECK (usage_known IN (0, 1)),
+    input_tokens INTEGER,
+    cached_input_tokens INTEGER,
+    cache_write_tokens INTEGER,
+    output_tokens INTEGER,
+    reasoning_tokens INTEGER,
+    total_tokens INTEGER,
+    cost_nano_usd INTEGER,
+    pricing_version TEXT
+  ) STRICT;
+  CREATE INDEX ai_usage_user_month ON ai_usage(user_id, local_month);
+  `,
 ];
 
 export function migrate(db, migrations = MIGRATIONS) {

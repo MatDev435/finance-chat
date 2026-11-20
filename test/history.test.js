@@ -115,3 +115,29 @@ test('stores the parts of a split preview (category name and value only)', () =>
   });
   assert.deepEqual(clean.data.parts, [{ category: 'Alimentação', amount: 70 }, { category: 'Limpeza', amount: 30 }]);
 });
+
+test('AI entries keep display fields only: batches, clarifications and searches', () => {
+  const batch = sanitizeEntry({
+    id: 'b1', role: 'assistant', kind: 'batch', text: 'Confira', at: 1, status: 'partial', ai: true, pendingId: 'secret-pending',
+    data: { items: [{ type: 'expense', amount: 45, description: 'Farmácia', category: 'Saúde', date: '2026-11-18', categoryId: 'cat-health' }], expenses: 45, incomes: 0, account: 'Nubank', accountId: 'acc-1' },
+  });
+  assert.deepEqual(batch, {
+    id: 'b1', role: 'assistant', kind: 'batch', text: 'Confira', at: 1, status: 'partial', ai: true,
+    data: { items: [{ type: 'expense', amount: 45, description: 'Farmácia', category: 'Saúde', date: '2026-11-18' }], expenses: 45, incomes: 0, account: 'Nubank' },
+  });
+
+  const clarify = sanitizeEntry({
+    id: 'c1', role: 'assistant', kind: 'clarify', text: 'Falta a categoria', at: 1, status: 'pending', draftId: 'd-1',
+    data: { items: [{ type: 'expense', amount: null, description: 'Uber', category: null }], missing: [{ label: 'Valor de Uber', suggestions: [{ id: 'cat-x', name: 'X' }] }], categories: [{ id: 'cat-x', name: 'X' }] },
+  });
+  assert.deepEqual(clarify.data, { items: [{ type: 'expense', amount: null, description: 'Uber', category: '', date: '' }], missing: [{ label: 'Valor de Uber' }] });
+  assert.equal(JSON.stringify(clarify).includes('cat-x'), false);
+  assert.equal(JSON.stringify(clarify).includes('d-1'), false);
+
+  const search = sanitizeEntry({
+    id: 's1', role: 'assistant', kind: 'search', text: 'Encontrei 1', at: 1,
+    data: { result: 'list', type: 'expense', from: null, to: '2026-11-19', account: 'Nubank', payees: ["McDonald's"], category: null, count: 1, total: -3800, transactions: [{ date: '2026-11-16', amount: -3800, payee: "McDonald's", category: 'Alimentação', id: 't-1' }] },
+  });
+  assert.deepEqual(search.data.transactions, [{ date: '2026-11-16', amount: -3800, payee: "McDonald's", category: 'Alimentação' }]);
+  assert.equal(sanitizeEntry({ id: 'x', role: 'assistant', kind: 'search', text: '', at: 1, ai: 'yes' }).ai, undefined);
+});
