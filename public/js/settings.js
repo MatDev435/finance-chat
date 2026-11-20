@@ -23,11 +23,13 @@ export function createSettings({ panel, onDefaultSaved, onAiChange, onEditConnec
   }
 
   function summaryRow(label, value) {
+    const group = document.createElement('div');
     const dt = document.createElement('dt');
     const dd = document.createElement('dd');
     dt.textContent = label;
     dd.textContent = value;
-    summary.append(dt, dd);
+    group.append(dt, dd);
+    summary.append(group);
   }
 
   form.addEventListener('submit', async (event) => {

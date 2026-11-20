@@ -45,8 +45,7 @@ const newEntryId = () => `m${Date.now().toString(36)}${(entryCounter += 1).toStr
 function showScreen(name) {
   app.dataset.screen = name;
   document.querySelectorAll('[data-screen-name]').forEach((screen) => { screen.hidden = screen.dataset.screenName !== name; });
-  $('#menu-anchor').hidden = name !== 'workspace';
-  closeMenu();
+  closeMenu({ instant: true });
   if (name !== 'workspace') delete app.dataset.view;
 }
 
@@ -173,37 +172,86 @@ function openSettings() {
   renderView({ navigated: true });
 }
 
-/* ---------- Menu ---------- */
+/* ---------- User menu (sidebar footer) ---------- */
 
-const menuButton = $('#menu-button');
+const menuButton = $('#user-button');
 const menu = $('#options-menu');
+const menuItems = () => [...menu.querySelectorAll('[role="menuitem"]')];
+const MENU_MOTION_MS = 180; // .options-menu transition in app.css
+let menuTimer = null;
 
-function closeMenu() {
-  menu.hidden = true;
+/** Avatar initial and name of the signed-in user. */
+function renderUserButton() {
+  const name = state.me?.user?.username || '';
+  $('#user-name').textContent = name;
+  $('#user-avatar').textContent = name ? name[0].toLocaleUpperCase('pt-BR') : '?';
+}
+
+const menuOpen = () => menu.dataset.state === 'open';
+
+/**
+ * The menu stays in the DOM so it can fade out: "closing" keeps it painted for
+ * the transition, then "closed" hides it (visibility) from pointers, tab order
+ * and screen readers.
+ */
+function openMenu({ focus = 'first' } = {}) {
+  clearTimeout(menuTimer);
+  menu.dataset.state = 'open';
+  menuButton.setAttribute('aria-expanded', 'true');
+  const items = menuItems();
+  (focus === 'last' ? items.at(-1) : items[0])?.focus();
+}
+
+function closeMenu({ restoreFocus = false, instant = false } = {}) {
+  if (menu.dataset.state === 'closed') return;
+  const wasOpen = menuOpen();
   menuButton.setAttribute('aria-expanded', 'false');
+  clearTimeout(menuTimer);
+  if (instant || !wasOpen || reducedMotionQuery.matches) menu.dataset.state = 'closed';
+  else {
+    menu.dataset.state = 'closing';
+    menuTimer = setTimeout(() => { menu.dataset.state = 'closed'; }, MENU_MOTION_MS);
+  }
+  if (restoreFocus) menuButton.focus();
 }
 
 menuButton.addEventListener('click', (event) => {
   event.stopPropagation();
-  const open = menu.hidden;
-  menu.hidden = !open;
-  menuButton.setAttribute('aria-expanded', String(open));
-  if (open) menu.querySelector('button')?.focus();
+  if (menuOpen()) closeMenu();
+  else openMenu();
+});
+
+menuButton.addEventListener('keydown', (event) => {
+  if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+  event.preventDefault();
+  openMenu({ focus: event.key === 'ArrowUp' ? 'last' : 'first' });
+});
+
+menu.addEventListener('keydown', (event) => {
+  const items = menuItems();
+  const index = items.indexOf(document.activeElement);
+  const move = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: items.length - 1 }[event.key];
+  if (move !== undefined) {
+    event.preventDefault();
+    items[(move + items.length) % items.length].focus();
+  } else if (event.key === 'Tab') {
+    closeMenu();
+  }
 });
 
 menu.addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]')?.dataset.action;
-  closeMenu();
+  if (!action) return;
+  closeMenu({ restoreFocus: action === 'sync' });
   if (action === 'sync') loadAccounts();
   if (action === 'settings') openSettings();
   if (action === 'logout') logout();
 });
 
-document.addEventListener('click', (event) => { if (!menu.hidden && !event.target.closest('#menu-anchor')) closeMenu(); });
+document.addEventListener('click', (event) => { if (menuOpen() && !event.target.closest('#user-menu')) closeMenu(); });
 document.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape' || menu.hidden) return;
-  closeMenu();
-  menuButton.focus();
+  if (event.key !== 'Escape' || !menuOpen()) return;
+  closeMenu({ restoreFocus: true });
 });
 
 /* ---------- Workspace: accounts ---------- */
@@ -316,6 +364,7 @@ async function enterWorkspace(me) {
   state.me = me;
   state.history = createHistory(storage, me.user.id);
   showScreen('workspace');
+  renderUserButton();
   updateComposerHint();
   $('#empty-chat-text').textContent = 'Cada conta do Actual Budget tem a sua conversa. As movimentações enviadas em uma conversa são registradas somente naquela conta.';
   renderView();

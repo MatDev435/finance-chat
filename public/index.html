@@ -25,15 +25,7 @@
       </div>
       <div class="brand-copy">
         <h1>Finance Chat</h1>
-        <p id="brand-subtitle">Registre uma movimentação em português</p>
-      </div>
-      <div class="menu-anchor" id="menu-anchor" hidden>
-        <button class="icon-button" id="menu-button" type="button" aria-label="Mais opções" title="Mais opções" aria-haspopup="menu" aria-expanded="false" aria-controls="options-menu"><span></span><span></span><span></span></button>
-        <div class="options-menu" id="options-menu" role="menu" hidden>
-          <button type="button" role="menuitem" data-action="sync">Atualizar contas</button>
-          <button type="button" role="menuitem" data-action="settings">Configurações</button>
-          <button type="button" role="menuitem" data-action="logout" class="danger">Sair</button>
-        </div>
+        <p>Registre uma movimentação em português</p>
       </div>
     </header>
 
@@ -123,14 +115,32 @@
 
     <section class="screen workspace" data-screen-name="workspace" data-view="list" hidden>
       <aside class="sidebar" aria-label="Contas">
-        <div class="sidebar-heading">
-          <h2>Contas</h2>
-          <button class="ghost-icon" id="sync-accounts" type="button" aria-label="Atualizar contas" title="Atualizar contas do Actual">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg>
-          </button>
+        <div class="sidebar-brand">
+          <div class="brand-mark" aria-hidden="true"><img src="/brand/finance-chat-symbol.svg" alt="" width="32" height="32"></div>
+          <h1>Finance Chat</h1>
         </div>
-        <nav class="account-list" id="account-list"></nav>
-        <p class="sidebar-status" id="accounts-status" role="status"></p>
+        <div class="sidebar-card">
+          <div class="sidebar-heading">
+            <h2>Contas</h2>
+            <button class="ghost-icon" id="sync-accounts" type="button" aria-label="Atualizar contas" title="Atualizar contas do Actual">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg>
+            </button>
+          </div>
+          <nav class="account-list" id="account-list"></nav>
+          <p class="sidebar-status" id="accounts-status" role="status"></p>
+          <div class="user-menu" id="user-menu">
+            <div class="options-menu" id="options-menu" role="menu" aria-labelledby="user-button" data-state="closed">
+              <button type="button" role="menuitem" tabindex="-1" data-action="sync"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg><span>Atualizar contas</span></button>
+              <button type="button" role="menuitem" tabindex="-1" data-action="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg><span>Configurações</span></button>
+              <button type="button" role="menuitem" tabindex="-1" data-action="logout"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg><span>Sair</span></button>
+            </div>
+            <button class="user-button" id="user-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="options-menu">
+              <span class="user-avatar" id="user-avatar" aria-hidden="true"></span>
+              <span class="user-name"><span class="sr-only">Menu do usuário </span><span id="user-name"></span></span>
+              <span class="user-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            </button>
+          </div>
+        </div>
       </aside>
 
       <section class="main-pane">
@@ -159,90 +169,132 @@
             <div class="typing-bubble"><span></span><span></span><span></span></div>
           </div>
 
-          <form id="command-form" class="composer">
-            <div class="composer-icon" aria-hidden="true">✦</div>
-            <label class="sr-only" for="message">Descreva a movimentação</label>
-            <input id="message" autocomplete="off" placeholder="Digite uma movimentação..." maxlength="500" required>
-            <button id="preview-button" class="send-button" aria-label="Revisar movimentação" title="Revisar movimentação"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-3 14-4-5-7-2Z"/><path d="m12 14 7-9"/></svg></button>
-          </form>
-          <p class="privacy-note"><span aria-hidden="true">♙</span> <span id="privacy-text">Você pode escrever em linguagem natural, como se estivesse falando.</span></p>
+          <div class="composer-area">
+            <p class="privacy-note"><span aria-hidden="true">♙</span> <span id="privacy-text">Você pode escrever em linguagem natural, como se estivesse falando.</span></p>
+            <form id="command-form" class="composer">
+              <div class="composer-icon" aria-hidden="true">✦</div>
+              <label class="sr-only" for="message">Descreva a movimentação</label>
+              <input id="message" autocomplete="off" placeholder="Digite uma movimentação..." maxlength="500" required>
+              <button id="preview-button" class="send-button" aria-label="Revisar movimentação" title="Revisar movimentação"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-3 14-4-5-7-2Z"/><path d="m12 14 7-9"/></svg></button>
+            </form>
+          </div>
         </div>
 
         <section class="settings-panel" id="settings-panel" aria-labelledby="settings-title" hidden>
+          <div class="settings-scroll">
           <header class="settings-header">
             <button class="back-button" id="settings-back" type="button" aria-label="Fechar configurações"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-            <h2 id="settings-title" tabindex="-1">Configurações</h2>
+            <div class="card-icon settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></div>
+            <div>
+              <h2 id="settings-title" tabindex="-1">Configurações</h2>
+              <p>Personalize o Finance Chat do seu jeito.</p>
+            </div>
           </header>
           <div class="settings-body">
-            <form class="panel-card stack-form" id="default-account-form">
-              <div class="panel-heading">
+            <form class="settings-card default-card" id="default-account-form">
+              <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M3 7h16a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-5a3 3 0 0 1 0-6h7"/><circle cx="16" cy="14" r=".6"/></svg></div>
+              <div class="card-heading">
                 <h3>Conta padrão</h3>
                 <p>A conversa aberta automaticamente quando você entra no Finance Chat.</p>
               </div>
-              <label class="field">
+              <label class="field default-field">
                 <span>Abrir ao entrar</span>
                 <select name="defaultAccountId" id="default-account-select"></select>
               </label>
-              <p class="form-notice" id="default-missing" hidden>A conta padrão escolhida não está mais disponível no Actual. Escolha outra.</p>
-              <p class="form-status" id="settings-status" role="status" hidden></p>
-              <div class="form-actions single"><button class="primary-button" type="submit">Salvar preferência</button></div>
+              <button class="primary-button with-icon" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg><span>Salvar preferência</span></button>
+              <div class="card-messages">
+                <p class="form-notice" id="default-missing" hidden>A conta padrão escolhida não está mais disponível no Actual. Escolha outra.</p>
+                <p class="form-status" id="settings-status" role="status" hidden></p>
+              </div>
             </form>
 
-            <section class="panel-card stack-form ai-settings" id="ai-settings" aria-labelledby="ai-title">
-              <div class="panel-heading">
-                <h3 id="ai-title">Inteligência artificial</h3>
-                <p>Opcional. Usa a sua conta da OpenAI para entender mensagens livres, vários lançamentos de uma vez e buscas no histórico desta conta. O que o Finance Chat já entende sozinho continua sem IA e sem custo.</p>
-              </div>
-              <label class="switch">
-                <input type="checkbox" role="switch" id="ai-enabled" aria-describedby="ai-enabled-hint">
-                <span>Usar IA para interpretar mensagens</span>
-              </label>
-              <p class="form-hint" id="ai-enabled-hint">Desativada, nenhuma mensagem é enviada à OpenAI. A chave e o modelo salvos são mantidos. Lançamentos sempre passam pela sua confirmação.</p>
-              <form id="ai-form" class="stack-form" novalidate>
-                <fieldset class="ai-fields" id="ai-fields" disabled>
-                  <legend class="sr-only">Configuração da OpenAI</legend>
-                  <label class="field">
-                    <span>Chave de API da OpenAI</span>
-                    <input name="apiKey" id="ai-key" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="512" placeholder="sk-..." aria-describedby="ai-key-hint">
-                    <small class="field-hint" id="ai-key-hint">Crie uma chave em platform.openai.com. Ela fica cifrada neste servidor e nunca é exibida de novo.</small>
-                  </label>
-                  <label class="field">
-                    <span>Modelo</span>
-                    <select name="model" id="ai-model" aria-describedby="ai-model-hint"></select>
-                    <small class="field-hint" id="ai-model-hint"></small>
-                  </label>
-                  <p class="form-status" id="ai-status" role="status" hidden></p>
-                  <div class="form-actions">
-                    <button class="secondary-button" id="ai-test" type="button">Testar chave e modelo</button>
-                    <button class="primary-button" id="ai-save" type="submit">Salvar</button>
+            <section class="settings-card ai-card" id="ai-settings" aria-labelledby="ai-title">
+              <div class="ai-config">
+                <div class="card-top">
+                  <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c.6 4.6 3.4 7.4 8 8-4.6.6-7.4 3.4-8 8-.6-4.6-3.4-7.4-8-8 4.6-.6 7.4-3.4 8-8Z"/></svg></div>
+                  <div class="card-heading">
+                    <h3 id="ai-title">Inteligência artificial</h3>
+                    <p>Opcional. Usa a sua conta da OpenAI para entender mensagens livres, vários lançamentos de uma vez e buscas no histórico desta conta. O que o Finance Chat já entende sozinho continua sem IA e sem custo.</p>
                   </div>
-                  <button class="link-button ai-remove" id="ai-remove-key" type="button" hidden>Remover a chave salva</button>
-                </fieldset>
-              </form>
-              <section class="usage-box" aria-labelledby="ai-usage-title">
-                <h4 id="ai-usage-title">Consumo registrado pelo Finance Chat</h4>
-                <dl class="summary-list" id="ai-usage"></dl>
+                </div>
+                <label class="switch switch-row">
+                  <span>Usar IA para interpretar mensagens</span>
+                  <input type="checkbox" role="switch" id="ai-enabled" aria-describedby="ai-enabled-hint">
+                </label>
+                <p class="form-hint" id="ai-enabled-hint">Desativada, nenhuma mensagem é enviada à OpenAI. A chave e o modelo salvos são mantidos. Lançamentos sempre passam pela sua confirmação.</p>
+                <form id="ai-form" class="stack-form" novalidate>
+                  <fieldset class="ai-fields" id="ai-fields" disabled>
+                    <legend class="sr-only">Configuração da OpenAI</legend>
+                    <div class="field">
+                      <label for="ai-key">Chave de API da OpenAI</label>
+                      <div class="input-with-button">
+                        <input name="apiKey" id="ai-key" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="512" placeholder="sk-..." aria-describedby="ai-key-hint">
+                        <button class="reveal-button" id="ai-key-reveal" type="button" aria-label="Mostrar a chave digitada" aria-pressed="false" title="Mostrar a chave digitada"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                      </div>
+                      <small class="field-hint" id="ai-key-hint">Crie uma chave em platform.openai.com. Ela fica cifrada neste servidor e nunca é exibida de novo.</small>
+                    </div>
+                    <label class="field">
+                      <span>Modelo</span>
+                      <select name="model" id="ai-model" aria-describedby="ai-model-hint"></select>
+                      <small class="field-hint" id="ai-model-hint"></small>
+                    </label>
+                    <p class="form-status" id="ai-status" role="status" hidden></p>
+                    <div class="form-actions">
+                      <button class="secondary-button" id="ai-test" type="button">Testar chave e modelo</button>
+                      <button class="primary-button" id="ai-save" type="submit">Salvar</button>
+                    </div>
+                    <button class="link-button ai-remove" id="ai-remove-key" type="button" hidden>Remover a chave salva</button>
+                  </fieldset>
+                </form>
+              </div>
+              <section class="usage-panel" aria-labelledby="ai-usage-title">
+                <div class="card-top">
+                  <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20v-6"/><path d="M12 20V4"/><path d="M18 20v-10"/></svg></div>
+                  <div class="card-heading">
+                    <h3 id="ai-usage-title">Consumo da IA</h3>
+                    <p>Uso registrado pelo Finance Chat com a sua chave da OpenAI.</p>
+                  </div>
+                </div>
+                <div class="usage-highlight">
+                  <div>
+                    <p id="ai-usage-month-label">Custo estimado no mês</p>
+                    <p class="usage-cost" id="ai-usage-month-cost">US$ 0,00</p>
+                  </div>
+                  <span class="usage-coins" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="9" cy="7" rx="6" ry="2.6"/><path d="M3 7v4c0 1.4 2.7 2.6 6 2.6s6-1.2 6-2.6V7"/><path d="M3 11v4c0 1.4 2.7 2.6 6 2.6 1.1 0 2.1-.1 3-.4"/><ellipse cx="16" cy="14" rx="5" ry="2.2"/><path d="M11 14v3.6c0 1.2 2.2 2.2 5 2.2s5-1 5-2.2V14"/></svg></span>
+                </div>
+                <dl class="usage-list" id="ai-usage"></dl>
+                <details class="usage-details">
+                  <summary>Acumulado desde o início</summary>
+                  <dl class="summary-list" id="ai-usage-total"></dl>
+                </details>
                 <p class="form-hint" id="ai-usage-note">Estimativa feita com os tokens informados pela OpenAI e a tabela oficial de preços. Inclui só as chamadas deste Finance Chat para o seu usuário: não é o saldo nem o consumo total da sua chave na OpenAI.</p>
               </section>
             </section>
 
-            <section class="panel-card stack-form">
-              <div class="panel-heading">
-                <h3>Conexão com o Actual</h3>
-                <p>Usada para listar as contas e registrar as movimentações.</p>
+            <section class="settings-card wide-card" aria-labelledby="connection-title">
+              <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+              <div class="card-main">
+                <div class="card-heading">
+                  <h3 id="connection-title">Conexão com o Actual</h3>
+                  <p>Usada para listar as contas e registrar as movimentações.</p>
+                </div>
+                <dl class="connection-grid" id="connection-summary"></dl>
               </div>
-              <dl class="summary-list" id="connection-summary"></dl>
-              <div class="form-actions single"><button class="secondary-button" id="edit-connection" type="button">Revisar conexão</button></div>
+              <button class="secondary-button with-icon" id="edit-connection" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg><span>Revisar conexão</span></button>
             </section>
 
-            <section class="panel-card stack-form">
-              <div class="panel-heading">
-                <h3>Sessão</h3>
-                <p id="session-user"></p>
+            <section class="settings-card wide-card" aria-labelledby="session-title">
+              <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg></div>
+              <div class="card-main">
+                <div class="card-heading">
+                  <h3 id="session-title">Sessão</h3>
+                  <p id="session-user"></p>
+                </div>
+                <p class="form-hint">Ao sair, o histórico de mensagens salvo neste navegador também é apagado.</p>
               </div>
-              <p class="form-hint">Ao sair, o histórico de mensagens salvo neste navegador também é apagado.</p>
-              <div class="form-actions single"><button class="danger-button" id="settings-logout" type="button">Sair</button></div>
+              <button class="danger-button with-icon" id="settings-logout" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg><span>Sair da sessão</span></button>
             </section>
+          </div>
           </div>
         </section>
       </section>

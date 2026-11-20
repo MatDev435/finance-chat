@@ -22,6 +22,10 @@ export function createAiSettings({ section, onChange }) {
   const saveButton = section.querySelector('#ai-save');
   const removeButton = section.querySelector('#ai-remove-key');
   const usageList = section.querySelector('#ai-usage');
+  const usageTotal = section.querySelector('#ai-usage-total');
+  const monthLabelText = section.querySelector('#ai-usage-month-label');
+  const monthCost = section.querySelector('#ai-usage-month-cost');
+  const revealButton = section.querySelector('#ai-key-reveal');
   const usageNote = section.querySelector('#ai-usage-note');
   const defaultKeyHint = keyHint.textContent;
   const defaultUsageNote = usageNote.textContent;
@@ -60,26 +64,62 @@ export function createAiSettings({ section, onChange }) {
     modelHintText.textContent = modelHint(models.find((model) => model.id === modelSelect.value));
   }
 
+  /** Icon (SVG paths) of each usage row in the panel; rows without one get none. */
+  const USAGE_ICONS = {
+    Chamadas: '<path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/><path d="m14 4-4 16"/>',
+    'Tokens de entrada': '<path d="M12 4v16"/><path d="m6 14 6 6 6-6"/>',
+    'Tokens de saída': '<path d="M12 20V4"/><path d="m6 10 6-6 6 6"/>',
+    'Total de tokens': '<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/>',
+    'Modelo selecionado': '<path d="M12 3c.6 4.6 3.4 7.4 8 8-4.6.6-7.4 3.4-8 8-.6-4.6-3.4-7.4-8-8 4.6-.6 7.4-3.4 8-8Z"/>',
+  };
+
+  function usageRow(list, label, value, withIcon) {
+    const group = document.createElement('div');
+    const dt = document.createElement('dt');
+    const dd = document.createElement('dd');
+    if (withIcon && USAGE_ICONS[label]) {
+      const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      icon.setAttribute('viewBox', '0 0 24 24');
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = USAGE_ICONS[label]; // fixed markup from this file, never user data
+      dt.append(icon);
+    }
+    dt.append(label);
+    dd.textContent = value;
+    group.append(dt, dd);
+    list.append(group);
+  }
+
+  /** Month panel: highlighted cost and the month's rows (cost shown above, so not repeated); total in the details. */
   function renderUsage(usage) {
     usageList.replaceChildren();
-    const row = (label, value) => {
-      const dt = document.createElement('dt');
-      const dd = document.createElement('dd');
-      dt.textContent = label;
-      dd.textContent = value;
-      usageList.append(dt, dd);
-    };
+    usageTotal.replaceChildren();
     const current = models.find((model) => model.id === settings?.model);
-    row('Modelo selecionado', current ? current.name : '—');
     if (usage) {
-      row(`Custo estimado em ${monthLabel(usage.month)}`, formatUsd(usage.currentMonth.costNanoUsd));
-      for (const [label, value] of usageRows(usage.total)) row(label === 'Custo estimado' ? 'Custo estimado acumulado' : label, value);
+      monthLabelText.textContent = `Custo estimado em ${monthLabel(usage.month)}`;
+      monthCost.textContent = formatUsd(usage.currentMonth.costNanoUsd);
+      for (const [label, value] of usageRows(usage.currentMonth)) {
+        if (label !== 'Custo estimado') usageRow(usageList, label, value, true);
+      }
+      for (const [label, value] of usageRows(usage.total)) usageRow(usageTotal, label === 'Custo estimado' ? 'Custo estimado acumulado' : label, value, false);
     }
+    usageRow(usageList, 'Modelo selecionado', current ? current.name : '—', true);
     usageNote.textContent = pricing ? `${defaultUsageNote} Tabela de preços de ${pricing.version.split('-').reverse().join('/')}.` : defaultUsageNote;
   }
 
+  /** Shows only what the user typed in this field: the saved key never comes back from the server. */
+  function setRevealed(revealed) {
+    keyInput.type = revealed ? 'text' : 'password';
+    revealButton.setAttribute('aria-pressed', String(revealed));
+    const label = revealed ? 'Ocultar a chave digitada' : 'Mostrar a chave digitada';
+    revealButton.setAttribute('aria-label', label);
+    revealButton.title = label;
+  }
+  revealButton.addEventListener('click', () => setRevealed(keyInput.type === 'password'));
+
   async function load() {
     setStatus('info', '');
+    setRevealed(false);
     try {
       const data = await api('GET', '/api/ai');
       models = data.models;
@@ -104,6 +144,7 @@ export function createAiSettings({ section, onChange }) {
       const data = await api('PUT', '/api/ai/settings', body);
       settings = data.settings;
       keyInput.value = '';
+      setRevealed(false);
       renderSettings();
       setStatus('success', successText(settings));
       onChange?.(settings);
