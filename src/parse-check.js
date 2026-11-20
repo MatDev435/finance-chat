@@ -52,7 +52,7 @@ function suspiciousNotes(value) {
  */
 export function isCompleteParse(intent) {
   if (!intent || typeof intent !== 'object') return { complete: false, reason: 'no-intent' };
-  if (intent.kind === 'undo') return { complete: true };
+  if (intent.kind === 'undo' || intent.kind === 'summary') return { complete: true };
 
   if (intent.kind === 'category-available' || intent.kind === 'category-can-spend') {
     return suspiciousName(intent.category) ? { complete: false, reason: 'category' } : { complete: true };

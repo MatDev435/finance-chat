@@ -100,12 +100,35 @@ export async function prepareItems(api, { accountId, items, updates = [], today 
 }
 
 /**
+ * Ids of the transactions a complete batch created, in the batch order, or
+ * null when they cannot be told apart with certainty. Each written item is
+ * paired with a new transaction of the same date and amount (identical items
+ * are interchangeable); any leftover or missing transaction means null.
+ */
+export function pairCreated(mappedList, created) {
+  const unused = [...created];
+  const ids = [];
+  for (const { transaction } of mappedList) {
+    const index = unused.findIndex((item) => item.date === transaction.date && item.amount === transaction.amount);
+    if (index === -1) return null;
+    ids.push(unused[index].id);
+    unused.splice(index, 1);
+  }
+  return unused.length ? null : ids;
+}
+
+/**
  * Writes a confirmed batch, one transaction at a time, in order. Account and
  * every category are re-validated first: any problem there means nothing is
  * written. During the writes, the first failure stops the batch: that item is
  * "uncertain" (it may or may not have been recorded) and the following ones
  * are "skipped" (never sent). Nothing is retried automatically. Returns
- * { account, results: ['written' | 'uncertain' | 'skipped'], synced }.
+ * { account, results: ['written' | 'uncertain' | 'skipped'], synced, transactionIds }.
+ *
+ * transactionIds (for undoing the whole batch) is only set when every item was
+ * written and the new ids were identified, like commitTransaction does: the
+ * account's transactions in the batch's date range are compared before and
+ * after the writes (one operation at a time, no sync in between).
  */
 export async function commitTransactions(api, mappedList) {
   await api.sync();
@@ -116,6 +139,15 @@ export async function commitTransactions(api, mappedList) {
   const known = new Set(categories.map((category) => category.id));
   if (!mappedList.every((mapped) => transactionCategoryIds(mapped.transaction).every((id) => known.has(id)))) {
     throw validationError('Uma das categorias deste lote não existe mais no Actual Budget. Envie a mensagem novamente.');
+  }
+
+  const dates = mappedList.map((mapped) => mapped.transaction.date).sort();
+  const [first, last] = [dates[0], dates.at(-1)];
+  let before = null;
+  try {
+    before = new Set((await api.getTransactions(account.id, first, last)).map((transaction) => transaction.id));
+  } catch {
+    // Without the snapshot the batch is still written; it just cannot be undone.
   }
 
   const results = mappedList.map(() => 'skipped');
@@ -129,12 +161,22 @@ export async function commitTransactions(api, mappedList) {
     }
   }
 
+  let transactionIds = null;
+  if (before && results.every((result) => result === 'written')) {
+    try {
+      const created = (await api.getTransactions(account.id, first, last)).filter((transaction) => !before.has(transaction.id));
+      transactionIds = pairCreated(mappedList, created);
+    } catch {
+      // The writes succeeded; without the ids, undo is simply not offered.
+    }
+  }
+
   try {
     await api.sync();
-    return { account, results, synced: true };
+    return { account, results, synced: true, transactionIds };
   } catch {
     // What was written stays in the local copy and is uploaded on the next successful sync.
-    return { account, results, synced: false };
+    return { account, results, synced: false, transactionIds };
   }
 }
 
@@ -142,6 +184,47 @@ function undoError(code, message) {
   const error = new Error(message);
   error.code = code;
   return error;
+}
+
+/**
+ * Deletes a whole batch this app has just created. Every transaction is
+ * checked first (same account, date and amount as written): if any of them
+ * was deleted or changed in Actual, nothing is deleted. Then they are deleted
+ * one by one; a failure in the middle is reported as uncertain, with how many
+ * were already deleted.
+ */
+export async function undoTransactions(api, { accountId, transactions }) {
+  await api.sync();
+  for (const item of transactions) {
+    const found = (await api.getTransactions(accountId, item.date, item.date)).find((transaction) => transaction.id === item.transactionId);
+    if (!found) {
+      throw undoError('UNDO_NOT_FOUND', 'Uma das movimentações do lote não foi encontrada como foi registrada: ela pode ter sido apagada ou alterada no Actual Budget. Nada foi desfeito.');
+    }
+    if (found.amount !== item.amount) {
+      throw undoError('UNDO_CHANGED', 'Uma das movimentações do lote foi alterada no Actual Budget depois de registrada. Para não apagar algo diferente, nada foi desfeito.');
+    }
+  }
+
+  let deleted = 0;
+  for (const item of transactions) {
+    try {
+      await api.deleteTransaction(item.transactionId);
+      deleted += 1;
+    } catch (cause) {
+      const error = undoError('UNDO_UNCERTAIN', deleted
+        ? `O lote foi desfeito só em parte: ${deleted} de ${transactions.length} movimentações foram apagadas antes de uma falha. Verifique no Actual Budget.`
+        : 'Não foi possível confirmar se as movimentações do lote foram desfeitas. Verifique no Actual Budget.');
+      error.cause = cause;
+      throw error;
+    }
+  }
+
+  try {
+    await api.sync();
+    return { synced: true };
+  } catch {
+    return { synced: false };
+  }
 }
 
 /**

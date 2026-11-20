@@ -17,6 +17,13 @@
  *   written as arrays of single-operator conditions.
  * - $oneof interpolates its values into SQL, so it only ever receives payee
  *   ids read from the budget (and checked), never text from the request.
+ * - Notes are matched with $like, which the engine runs as a case-insensitive
+ *   pattern against the notes without accents (UNICODE_LIKE + NORMALISE). The
+ *   term is folded the same way and its wildcards (%, ?, \) are escaped, so
+ *   it is always a plain "contains". In a category search (split parts), the
+ *   note of the whole purchase also counts: the ids of the split purchases
+ *   whose note matches are read first (the engine cannot join a part to its
+ *   parent), then their parts are included by parent_id.
  */
 import { requireChatAccount } from './accounts.js';
 import { foldName, levenshtein, matchCategory, notFoundMessage } from './category-match.js';
@@ -30,7 +37,7 @@ export const MAX_LIST_LIMIT = 20;
 const MAX_PAYEES = 10;
 const ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
 const FIELDS = ['id', 'date', 'amount', 'payee', 'category', 'notes', 'is_parent'];
-const FILTER_KEYS = ['payee', 'category', 'type', 'minAmount', 'maxAmount'];
+const FILTER_KEYS = ['payee', 'notes', 'category', 'type', 'minAmount', 'maxAmount'];
 const PERIOD_KEYS = ['period', 'periodCount', 'month', 'year', 'from', 'to'];
 
 const textAnswer = (message) => ({ ok: true, kind: 'text', message });
@@ -58,6 +65,13 @@ export function matchPayees(payees, term) {
   }
   const threshold = Math.max(1, Math.floor(target.length / 4));
   return candidates.filter((payee) => levenshtein(target, squash(payee.name)) <= threshold);
+}
+
+/** "Pão de Açúcar 50%" → "%pao de acucar 50\\%%": a plain contains-pattern for $like (see the header). */
+export function notesPattern(term) {
+  const folded = foldName(term || '').replace(/\s+/g, ' ').trim();
+  if (!folded) return null;
+  return `%${folded.replace(/[\\%?]/g, (character) => `\\${character}`)}%`;
 }
 
 /** A follow-up ("e no total?") reuses the previous filters, replacing only what the new request sets. */
@@ -107,6 +121,20 @@ export function buildFilter(spec) {
   else if (min !== null || max !== null) filter.$or = [{ amount: signed(-1) }, { amount: signed(1) }];
   if (spec.payeeIds) filter.payee = { $oneof: spec.payeeIds };
   if (spec.categoryId) filter.category = spec.categoryId;
+  if (spec.notesPattern) {
+    const notes = { notes: { $like: spec.notesPattern } };
+    // A split part rarely has a note of its own: the purchase's note is on the parent.
+    const parents = spec.categoryId ? spec.notesParentIds ?? [] : [];
+    const condition = parents.length ? { $or: [notes, { parent_id: { $oneof: parents } }] } : notes;
+    if (filter.$or) {
+      filter.$and = [{ $or: filter.$or }, condition];
+      delete filter.$or;
+    } else if (condition.$or) {
+      filter.$or = condition.$or;
+    } else {
+      Object.assign(filter, condition);
+    }
+  }
   return filter;
 }
 
@@ -120,6 +148,15 @@ const ORDERS = {
 /** Runs the search on an open budget: { count, total (cents), rows }. Read-only. */
 export async function executeSearch(api, spec) {
   if (spec.payeeIds && !spec.payeeIds.every((id) => ID_PATTERN.test(id))) throw new Error('Invalid payee id');
+  if (spec.categoryId && spec.notesPattern) {
+    const parents = await api.aqlQuery(api.q('transactions')
+      .filter({ account: spec.accountId, is_parent: true, notes: { $like: spec.notesPattern } })
+      .options({ splits: 'none' })
+      .select(['id']));
+    const ids = (parents.data || []).map((row) => row.id);
+    if (!ids.every((id) => ID_PATTERN.test(id))) throw new Error('Invalid transaction id');
+    spec = { ...spec, notesParentIds: ids };
+  }
   const base = () => api.q('transactions').filter(buildFilter(spec)).options({ splits: spec.categoryId ? 'inline' : 'none' });
   const scalar = async (expression) => Number((await api.aqlQuery(base().calculate(expression))).data) || 0;
   const count = await scalar({ $count: '$id' });
@@ -169,13 +206,23 @@ export function createSearch({ actual, conversations, today = currentLocalDate }
           category = match.category;
         }
         let matched = null;
+        let notesTerm = merged.notes;
+        let payeeAsNotes = false;
         if (merged.payee) {
           matched = matchPayees(payees, merged.payee);
-          if (!matched.length) return { empty: true, account, category, payeeTerm: merged.payee };
-          if (matched.length > MAX_PAYEES) {
-            return { message: `Encontrei muitos beneficiários parecidos com “${merged.payee}” (${matched.slice(0, 5).map((payee) => payee.name).join(', ')}…). Pode ser mais específico?` };
+          if (!matched.length && !notesTerm) {
+            // "quanto gastei com Monster": no such payee, so it may be what was bought (the notes).
+            notesTerm = merged.payee;
+            payeeAsNotes = true;
+            matched = null;
+          } else if (!matched.length) {
+            return { empty: true, account, category, payeeTerm: merged.payee };
           }
         }
+        if (matched && matched.length > MAX_PAYEES) {
+          return { message: `Encontrei muitos beneficiários parecidos com “${merged.payee}” (${matched.slice(0, 5).map((payee) => payee.name).join(', ')}…). Pode ser mais específico?` };
+        }
+        const pattern = notesTerm ? notesPattern(notesTerm) : null;
         const spec = {
           accountId: account.id,
           from: period.from,
@@ -185,6 +232,7 @@ export function createSearch({ actual, conversations, today = currentLocalDate }
           maxCents: merged.maxAmount === null ? null : amountToCents(merged.maxAmount),
           payeeIds: matched ? matched.map((payee) => payee.id) : null,
           categoryId: category?.id ?? null,
+          notesPattern: pattern,
           result,
           order: merged.order || 'newest',
           limit: Math.min(merged.limit ?? DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT),
@@ -196,6 +244,8 @@ export function createSearch({ actual, conversations, today = currentLocalDate }
           account,
           category,
           payees: matched ? matched.map((payee) => payee.name) : [],
+          notes: pattern ? notesTerm : null,
+          payeeAsNotes,
           spec,
           data: {
             ...data,
@@ -220,6 +270,8 @@ export function createSearch({ actual, conversations, today = currentLocalDate }
         to: period.to,
         account: outcome.account.name,
         payees: outcome.empty ? [merged.payee] : outcome.payees,
+        notes: outcome.empty ? (merged.notes ?? null) : outcome.notes,
+        payeeAsNotes: Boolean(outcome.payeeAsNotes),
         category: outcome.category?.name ?? null,
         minAmount: merged.minAmount,
         maxAmount: merged.maxAmount,

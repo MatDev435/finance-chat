@@ -50,6 +50,22 @@ function transactionRows(budget) {
   return rows;
 }
 
+/** Like the engine's UNICODE_LIKE(pattern, NORMALISE(value)): case- and accent-insensitive, % and ? wildcards, \\ escapes. */
+function like(value, pattern) {
+  const normalized = String(value ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+  let source = '';
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index];
+    if (character === '\\' && ['%', '?', '\\'].includes(pattern[index + 1])) {
+      source += pattern[index + 1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      index += 1;
+    } else if (character === '%') source += '.*';
+    else if (character === '?') source += '.';
+    else source += character.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${source}$`, 'i').test(normalized);
+}
+
 function matchCondition(value, condition) {
   if (Array.isArray(condition)) return condition.every((item) => matchCondition(value, item));
   if (condition === null || typeof condition !== 'object') return condition === null ? value == null : value === condition;
@@ -63,6 +79,7 @@ function matchCondition(value, condition) {
     case '$gt': return value > rhs;
     case '$gte': return value >= rhs;
     case '$oneof': return rhs.includes(value);
+    case '$like': return like(value, rhs);
     default: throw new Error(`fake AQL: unsupported operator ${operator}`);
   }
 }
@@ -180,7 +197,9 @@ export function createFakeActual(servers) {
 
     async getBudgetMonth(month) {
       await tick();
-      return structuredClone(openBudget().months[month] ?? { categoryGroups: [] });
+      const value = openBudget().months[month];
+      if (value instanceof Error) throw value; // e.g. a month outside the budget
+      return structuredClone(value ?? { categoryGroups: [] });
     },
 
     async addTransactions(accountId, transactions) {

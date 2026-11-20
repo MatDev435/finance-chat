@@ -10,6 +10,9 @@ export const icons = {
   batch: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="5" rx="1.5"/><rect x="4" y="10.5" width="16" height="5" rx="1.5"/><path d="M4 18.5h16"/></svg>',
   search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>',
   question: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/></svg>',
+  summary: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16"/><path d="M7 16v-5M12 16V6M17 16v-8"/></svg>',
+  notes: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"/><path d="M9 10h6M9 14h6M9 18h3"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 3 20h18z"/><path d="M12 10v4M12 17h.01"/></svg>',
 };
 
 const STATUS_BADGES = {
@@ -146,7 +149,7 @@ function batchCard(entry, actions) {
   if (data.expenses) totals.append(detailRow('expense', 'Total de despesas', formatCurrency(data.expenses)));
   if (data.incomes) totals.append(detailRow('income', 'Total de receitas', formatCurrency(data.incomes)));
   if (data.account) totals.append(detailRow('account', 'Conta', data.account));
-  card.append(totals, element('p', 'card-note', 'Lotes não podem ser desfeitos pelo Finance Chat.'));
+  card.append(totals, element('p', 'card-note', 'Depois de registrado, o lote inteiro pode ser desfeito por 10 minutos.'));
   setPreviewStatus(card, entry.status === 'pending' && !actions ? 'stale' : entry.status);
   if (actions) {
     const confirmButton = element('button', '', '✓  Aprovar todas');
@@ -253,6 +256,7 @@ function searchCard(data) {
   const details = element('div', 'transaction-details');
   details.append(detailRow('account', 'Conta', data.account));
   if (data.payees?.length) details.append(detailRow('payee', 'Beneficiário', data.payees.join(', ')));
+  if (data.notes) details.append(detailRow('notes', 'Nas notas', `“${data.notes}”`));
   if (data.category) details.append(detailRow('category', 'Categoria', data.category));
   details.append(detailRow('date', 'Período', searchPeriod(data)));
   if (data.result === 'sum' || data.result === 'count') details.append(detailRow('batch', data.result === 'sum' ? 'Transações' : 'Soma', data.result === 'sum' ? String(data.count) : formatCurrency(Math.abs(data.total) / 100)));
@@ -267,10 +271,80 @@ function searchCard(data) {
         element('span', `batch-amount ${transaction.amount > 0 ? 'income' : 'expense'}`, `${transaction.amount > 0 ? '+' : '−'} ${formatCurrency(Math.abs(transaction.amount) / 100)}`),
       );
       item.append(line, element('div', 'batch-meta', `${formatDate(transaction.date)}${transaction.category ? ` · ${transaction.category}` : ''}`));
+      if (transaction.notes) item.append(element('div', 'batch-meta notes-meta', transaction.notes));
       list.append(item);
     }
     card.append(list);
   }
+  return card;
+}
+
+const MONTH_NAMES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+/** "2026-11" → "Novembro de 2026" */
+export function summaryMonth(month) {
+  const [year, index] = String(month || '').split('-').map(Number);
+  const name = MONTH_NAMES[index - 1];
+  return name ? `${name.charAt(0).toUpperCase()}${name.slice(1)} de ${year}` : '';
+}
+
+const signedCurrency = (cents) => `${cents < 0 ? '−' : '+'} ${formatCurrency(Math.abs(cents) / 100)}`;
+
+function sectionTitle(text) {
+  return element('h3', 'card-section-title', text);
+}
+
+/** Month summary: the chat's account first, then the budget of the month (all accounts). Amounts in cents. */
+function summaryCard(data) {
+  const card = element('section', 'transaction-card info-card summary-card');
+  card.setAttribute('aria-label', `Resumo de ${summaryMonth(data.month)}`);
+  card.append(cardHeading(icons.summary, 'RESUMO DO MÊS', summaryMonth(data.month), element('span')));
+
+  card.append(sectionTitle(`Conta ${data.account}`));
+  const account = element('div', 'transaction-details');
+  account.append(
+    detailRow('date', 'Período', searchPeriod(data)),
+    detailRow('expense', 'Despesas', `${formatCurrency(data.expenses / 100)} (${data.expenseCount})`),
+    detailRow('income', 'Receitas', `${formatCurrency(data.incomes / 100)} (${data.incomeCount})`),
+    detailRow('account', 'Resultado', signedCurrency(data.net)),
+  );
+  card.append(account);
+  if (data.topExpenses?.length) {
+    const list = element('ol', 'search-list');
+    list.setAttribute('aria-label', 'Maiores despesas');
+    for (const expense of data.topExpenses) {
+      const item = element('li', 'search-item');
+      const line = element('div', 'batch-line');
+      line.append(
+        element('span', 'batch-title', expense.payee || 'Sem beneficiário'),
+        element('span', 'batch-amount expense', `− ${formatCurrency(Math.abs(expense.amount) / 100)}`),
+      );
+      item.append(line, element('div', 'batch-meta', `${formatDate(expense.date)}${expense.category ? ` · ${expense.category}` : ''}`));
+      list.append(item);
+    }
+    card.append(sectionTitle('Maiores despesas'), list);
+  }
+
+  card.append(sectionTitle('Orçamento do mês (todas as contas)'));
+  if (!data.budget) {
+    card.append(element('p', 'card-note', 'O orçamento não tem dados deste mês.'));
+    return card;
+  }
+  const budget = element('div', 'transaction-details');
+  budget.append(detailRow('category', 'Gasto', `${formatCurrency(data.budget.spent / 100)} de ${formatCurrency(data.budget.budgeted / 100)}`));
+  if (data.budget.topCategories?.length) {
+    const top = detailRow('summary', 'Onde mais gastou', data.budget.topCategories.map((category) => `${category.name} (${formatCurrency(category.spent / 100)})`).join(', '));
+    top.classList.add('stacked');
+    budget.append(top);
+  }
+  const overspent = data.budget.overspent?.length
+    ? data.budget.overspent.map((category) => `${category.name} (faltam ${formatCurrency(-category.balance / 100)})`).join(', ')
+      + (data.budget.overspentCount > data.budget.overspent.length ? ` e mais ${data.budget.overspentCount - data.budget.overspent.length}` : '')
+    : 'Nenhuma';
+  const overspentRow = detailRow('alert', 'Estouradas', overspent);
+  if (data.budget.overspent?.length) overspentRow.classList.add('is-alert', 'stacked');
+  budget.append(overspentRow);
+  card.append(budget);
   return card;
 }
 
@@ -299,6 +373,10 @@ export function announcementFor(entry) {
     return `${text} ${entry.data.type === 'income' ? 'Receita' : 'Despesa'} de ${formatCurrency(entry.data.amount)}.`;
   }
   if (entry.kind === 'batch' && entry.data) return `${text} ${entry.data.items.length} movimentações aguardando aprovação.`;
+  if (entry.kind === 'summary' && entry.data) {
+    const { data } = entry;
+    return `${text} Despesas de ${formatCurrency(data.expenses / 100)} e receitas de ${formatCurrency(data.incomes / 100)} na conta ${data.account}.`;
+  }
   return text;
 }
 
@@ -356,6 +434,7 @@ export function createChatView({ conversation, typingIndicator, announcer }) {
     if (entry.kind === 'batch' && entry.data) card = batchCard(entry, actions);
     if (entry.kind === 'clarify' && entry.data) card = clarifyCard(entry, actions);
     if (entry.kind === 'search' && entry.data) card = searchCard(entry.data);
+    if (entry.kind === 'summary' && entry.data) card = summaryCard(entry.data);
     if (card) bubble.append(card);
     if (actions?.suggestions?.length) {
       const row = element('div', 'suggestion-actions');
@@ -378,7 +457,7 @@ export function createChatView({ conversation, typingIndicator, announcer }) {
       row.dataset.liveEntry = entry.id;
       const button = element('button', '', '↶  Desfazer');
       button.type = 'button';
-      button.setAttribute('aria-label', 'Desfazer esta movimentação');
+      button.setAttribute('aria-label', actions.undoLabel || 'Desfazer esta movimentação');
       button.addEventListener('click', () => {
         button.disabled = true;
         actions.onUndo();

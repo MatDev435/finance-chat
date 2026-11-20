@@ -6,7 +6,7 @@
  * module touches the budget; it only produces data for the dispatcher.
  */
 import { MAX_SPLITS, parseAmount } from '../parser.js';
-import { INTENTS, MAX_OPERATIONS, SEARCH_ORDERS, SEARCH_PERIODS, SEARCH_RESULTS } from './plan-schema.js';
+import { INTENTS, MAX_OPERATIONS, SEARCH_ORDERS, SEARCH_PERIODS, SEARCH_RESULTS, SUMMARY_PERIODS } from './plan-schema.js';
 
 export const PLAN_ERROR_MESSAGE = 'A IA devolveu uma interpretação que o Finance Chat não conseguiu validar. Nada foi registrado. Tente escrever de outro jeito.';
 
@@ -115,6 +115,7 @@ function searchFrom(raw) {
   return {
     followUp: raw.followUp,
     payee: cleanText(raw.payee, 120),
+    notes: cleanText(raw.notes, 120),
     category: cleanText(raw.category, 120),
     type: enumFrom(raw.type, ['expense', 'income', 'any']),
     period: enumFrom(raw.period, SEARCH_PERIODS),
@@ -131,6 +132,13 @@ function searchFrom(raw) {
   };
 }
 
+function summaryFrom(raw) {
+  if (!isObject(raw)) throw planError('summary');
+  const period = enumFrom(raw.period, SUMMARY_PERIODS);
+  if (!period) throw planError('summary-period');
+  return { period, month: intFrom(raw.month, 1, 12), year: intFrom(raw.year, 2000, 2100) };
+}
+
 function operationFrom(raw) {
   if (!isObject(raw)) throw planError('operation');
   const intent = enumFrom(raw.intent, INTENTS);
@@ -143,6 +151,8 @@ function operationFrom(raw) {
       return { kind: 'category-can-spend', category: capitalized(cleanText(raw.category, 120)), amount: amountFrom(raw.amount) };
     case 'search_transactions':
       return { kind: 'search', search: searchFrom(raw.search) };
+    case 'month_summary':
+      return { kind: 'summary', summary: summaryFrom(raw.summary) };
     case 'undo':
       return { kind: 'undo' };
     case 'unsupported':

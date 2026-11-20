@@ -33,17 +33,18 @@ export function responseBody(plan, { usage = DEFAULT_USAGE, id = `resp_fake${nex
 
 const NULL_TRANSACTION = { type: 'expense', amount: null, payee: null, category: null, categoryHints: [], splits: null, notes: null, date: null };
 const NULL_SEARCH = {
-  followUp: false, payee: null, category: null, type: null, period: null, periodCount: null, month: null, year: null,
+  followUp: false, payee: null, notes: null, category: null, type: null, period: null, periodCount: null, month: null, year: null,
   from: null, to: null, minAmount: null, maxAmount: null, result: null, order: null, limit: null,
 };
 
 export const op = {
-  tx: (transaction) => ({ intent: 'create_transaction', transaction: { ...NULL_TRANSACTION, ...transaction }, category: null, amount: null, search: null }),
-  balance: (category) => ({ intent: 'category_balance', transaction: null, category, amount: null, search: null }),
-  simulate: (category, amount) => ({ intent: 'simulate_spend', transaction: null, category, amount, search: null }),
-  search: (search) => ({ intent: 'search_transactions', transaction: null, category: null, amount: null, search: { ...NULL_SEARCH, ...search } }),
-  undo: () => ({ intent: 'undo', transaction: null, category: null, amount: null, search: null }),
-  unsupported: () => ({ intent: 'unsupported', transaction: null, category: null, amount: null, search: null }),
+  tx: (transaction) => ({ intent: 'create_transaction', transaction: { ...NULL_TRANSACTION, ...transaction }, category: null, amount: null, search: null, summary: null }),
+  balance: (category) => ({ intent: 'category_balance', transaction: null, category, amount: null, search: null, summary: null }),
+  simulate: (category, amount) => ({ intent: 'simulate_spend', transaction: null, category, amount, search: null, summary: null }),
+  search: (search) => ({ intent: 'search_transactions', transaction: null, category: null, amount: null, search: { ...NULL_SEARCH, ...search }, summary: null }),
+  summary: (summary) => ({ intent: 'month_summary', transaction: null, category: null, amount: null, search: null, summary: { period: 'this_month', month: null, year: null, ...summary } }),
+  undo: () => ({ intent: 'undo', transaction: null, category: null, amount: null, search: null, summary: null }),
+  unsupported: () => ({ intent: 'unsupported', transaction: null, category: null, amount: null, search: null, summary: null }),
 };
 
 export function plan({ operations = [], draftUpdates = [], cancelDraft = false, question = null } = {}) {

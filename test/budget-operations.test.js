@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { commitTransaction, listChatAccounts, prepareTransaction, undoTransaction } from '../src/budget-operations.js';
+import { commitTransaction, listChatAccounts, pairCreated, prepareTransaction, undoTransaction } from '../src/budget-operations.js';
 import { parseCommand } from '../src/parser.js';
 import { createBudget, createFakeActual } from './support/fake-actual.js';
 
@@ -184,4 +184,14 @@ test('undo of a split purchase removes the whole transaction', async () => {
   const { transactionId } = await commitTransaction(api, mapped);
   await undoTransaction(api, { accountId: 'acc-inter', transactionId, date: '2026-11-18', amount: -10000 });
   assert.equal(budget.transactions.length, 0);
+});
+
+test('batch ids are paired by date and amount, and only when they account for every item exactly', () => {
+  const item = (date, amount) => ({ accountId: 'a', transaction: { date, amount } });
+  const batch = [item('2026-11-01', -100), item('2026-11-02', -200), item('2026-11-01', -100)];
+  const created = [{ id: 'x', date: '2026-11-02', amount: -200 }, { id: 'y', date: '2026-11-01', amount: -100 }, { id: 'z', date: '2026-11-01', amount: -100 }];
+  assert.deepEqual(pairCreated(batch, created), ['y', 'x', 'z']);
+  assert.equal(pairCreated(batch, created.slice(0, 2)), null, 'one missing');
+  assert.equal(pairCreated(batch.slice(0, 2), created), null, 'an unexpected extra transaction');
+  assert.equal(pairCreated([item('2026-11-01', -100)], [{ id: 'w', date: '2026-11-01', amount: -101 }]), null, 'different amount');
 });

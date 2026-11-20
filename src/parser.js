@@ -177,13 +177,30 @@ export function parseCommand(input) {
   return command;
 }
 
+/*
+ * Month summary in fixed phrases (the AI handles free variations such as
+ * "resumo de outubro"): "resumo", "resumo do mês", "me mostra o resumo do mês",
+ * "como estou esse mês?", "como estão minhas finanças?", "resumo do mês passado",
+ * "como foi o mês passado?".
+ */
+const SUMMARY_ASK = String.raw`(?:(?:me\s+)?(?:mostra|mostre|d[aá]|manda|quero|faz|fa[cç]a)\s+(?:(?:um|o)\s+)?)?`;
+const SUMMARY_THIS = new RegExp(String.raw`^(?:${SUMMARY_ASK}resumo(?:\s+(?:d[oe]|deste|desse)\s+m[eê]s(?:\s+atual)?)?|como\s+(?:eu\s+)?(?:estou|t[oô]|est[aã]o\s+(?:as\s+)?(?:minhas\s+)?finan[cç]as|(?:est|t)[aá]\s+o\s+m[eê]s)(?:\s+(?:esse|este|neste|nesse)\s+m[eê]s)?)[?.!]*$`, 'i');
+const SUMMARY_LAST = new RegExp(String.raw`^(?:${SUMMARY_ASK}resumo\s+do\s+m[eê]s\s+passado|como\s+foi\s+o\s+m[eê]s\s+passado)[?.!]*$`, 'i');
+
+function parseSummaryRequest(text) {
+  if (SUMMARY_THIS.test(text)) return { kind: 'summary', period: 'this_month' };
+  if (SUMMARY_LAST.test(text)) return { kind: 'summary', period: 'last_month' };
+  return null;
+}
+
 const UNDO_COMMAND = /^(?:desfazer|desfaz|desfaça|desfaca)(?:\s+(?:o\s+)?(?:último|ultimo)(?:\s+(?:lançamento|lancamento|registro|movimentação|movimentacao))?)?[.!]*$/i;
 
 export function parseMessage(input) {
   const text = normalizeText(input);
   if (!text) fail('Digite uma mensagem financeira.');
   if (UNDO_COMMAND.test(text)) return { kind: 'undo' };
-  return parseCanSpendQuestion(text)
+  return parseSummaryRequest(text)
+    || parseCanSpendQuestion(text)
     || parseAvailableCategoryQuestion(text)
     || { kind: 'transaction', command: parseCommand(text) };
 }

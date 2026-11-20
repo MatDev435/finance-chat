@@ -205,7 +205,7 @@ test('a split without a total takes the sum of the parts the user gave', async (
   await app.close();
 });
 
-test('three transactions: a full batch preview, written in order after one confirmation, without undo', async () => {
+test('three transactions: a full batch preview, written in order after one confirmation, then undone as a whole', async () => {
   const { app, send, ana, written } = await aiApp();
   const single = await send('Gastei 5 na padaria categoria alimentação');
   const singleConfirm = await ana.post('/api/chat/confirm', { pendingId: single.body.pendingId });
@@ -223,7 +223,7 @@ test('three transactions: a full batch preview, written in order after one confi
   assert.equal(preview.body.items.length, 3);
   assert.match(preview.body.text, /Total de despesas: R\$\s?125,00/);
   assert.match(preview.body.text, /Total de receitas: R\$\s?200,00/);
-  assert.match(preview.body.text, /não podem ser desfeitos/);
+  assert.match(preview.body.text, /o lote inteiro pode ser desfeito por 10 minutos/);
   assert.equal(written().length, 1, 'only the earlier single transaction');
 
   const confirm = await ana.post('/api/chat/confirm', { pendingId: preview.body.pendingId });
@@ -231,13 +231,56 @@ test('three transactions: a full batch preview, written in order after one confi
   assert.equal(confirm.body.kind, 'batch');
   assert.equal(confirm.body.complete, true);
   assert.deepEqual(confirm.body.results, ['written', 'written', 'written']);
-  assert.equal(confirm.body.undoId, undefined);
+  assert.ok(confirm.body.undoId);
+  assert.match(confirm.body.message, /Para desfazer o lote inteiro/);
   assert.deepEqual(written().slice(1).map((t) => [t.amount, t.category]), [[-4500, 'cat-health'], [-8000, 'cat-food'], [20000, 'cat-extra']]);
   assert.equal((await ana.post('/api/chat/confirm', { pendingId: preview.body.pendingId })).status, 409, 'never written twice');
 
-  const undo = await send('desfazer');
-  assert.equal(undo.body.code, 'NO_UNDO', 'after a batch, "desfazer" never deletes the older transaction');
   assert.equal(written().length, 4);
+
+  // "desfazer" now means the batch (the newest confirmation), never the older single transaction.
+  const undo = await send('desfazer');
+  assert.equal(undo.body.kind, 'undo');
+  assert.equal(undo.body.undoneId, confirm.body.undoId);
+  assert.match(undo.body.message, /^Lote desfeito: 3 movimentações apagadas\./);
+  assert.match(undo.body.message, /• Receita de R\$\s?200,00 para freelance/);
+  assert.deepEqual(written().map((t) => t.amount), [-500], 'only the earlier single transaction is left');
+  assert.equal((await send('desfazer')).body.code, 'NO_UNDO', 'the older transaction is not undoable anymore');
+  await app.close();
+});
+
+test('batch undo checks every transaction first: one changed in Actual means nothing is deleted', async () => {
+  const { app, send, ana, written } = await aiApp();
+  app.openai.replyPlan(plan({ operations: [op.tx({ amount: '10', payee: 'a', category: 'livre' }), op.tx({ amount: '10', payee: 'a', category: 'livre' })] }));
+  const preview = await send('duas vezes 10 em a no livre');
+  const confirm = await ana.post('/api/chat/confirm', { pendingId: preview.body.pendingId });
+  assert.ok(confirm.body.undoId, 'identical items are still identified');
+  written()[1].amount = -2000; // edited in Actual after the write
+  const changed = await ana.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: confirm.body.undoId });
+  assert.equal(changed.status, 409);
+  assert.equal(changed.body.code, 'UNDO_CHANGED');
+  assert.match(changed.body.error, /nada foi desfeito/);
+  assert.equal(written().length, 2);
+  assert.equal(app.api.calls.filter((call) => call.op === 'delete').length, 0);
+  await app.close();
+});
+
+test('a batch undo that fails midway is reported as partial and uncertain', async () => {
+  const { app, send, ana, written } = await aiApp();
+  app.openai.replyPlan(plan({ operations: [op.tx({ amount: '1', payee: 'a', category: 'livre' }), op.tx({ amount: '2', payee: 'b', category: 'livre' }), op.tx({ amount: '3', payee: 'c', category: 'livre' })] }));
+  const preview = await send('1 em a, 2 em b e 3 em c, tudo livre');
+  const confirm = await ana.post('/api/chat/confirm', { pendingId: preview.body.pendingId });
+  let deletes = 0;
+  app.api.hooks.beforeDelete = () => {
+    deletes += 1;
+    if (deletes === 2) throw new Error('boom');
+  };
+  const undo = await ana.post('/api/chat/undo', { accountId: 'acc-nubank', undoId: confirm.body.undoId });
+  assert.equal(undo.status, 503);
+  assert.equal(undo.body.code, 'UNDO_UNCERTAIN');
+  assert.match(undo.body.error, /desfeito só em parte: 1 de 3/);
+  assert.equal(written().length, 2);
+  assert.equal((await send('desfazer')).body.code, 'NO_UNDO', 'never retried automatically');
   await app.close();
 });
 
@@ -440,7 +483,9 @@ test('batch writes stop at the first failure: written, uncertain and skipped ite
   assert.match(confirm.body.message, /✓ Registrada: Despesa de R\$\s?1,00 para a/);
   assert.match(confirm.body.message, /\? Resultado incerto: Despesa de R\$\s?2,00/);
   assert.match(confirm.body.message, /✗ Não registrada: Despesa de R\$\s?3,00/);
+  assert.equal(confirm.body.undoId, undefined, 'an interrupted batch cannot be undone');
   assert.equal(written().length, 1);
+  assert.equal((await send('desfazer')).body.code, 'NO_UNDO');
   await app.close();
 });
 

@@ -151,3 +151,14 @@ test('recognizes the undo command in a few natural forms only', () => {
   assert.throws(() => parseMessage('desfazer 40 reais'));
   assert.notDeepEqual(parseMessage('Gastei 10 no desfazer categoria lazer'), { kind: 'undo' });
 });
+
+test('recognizes a few fixed month-summary phrases (free variations go to the AI)', () => {
+  for (const text of ['resumo', 'Resumo do mês', 'me mostra o resumo do mês', 'quero um resumo', 'como estou esse mês?', 'Como estão minhas finanças?', 'como tá o mês?', 'como estou']) {
+    assert.deepEqual(parseMessage(text), { kind: 'summary', period: 'this_month' }, text);
+  }
+  for (const text of ['resumo do mês passado', 'Como foi o mês passado?']) {
+    assert.deepEqual(parseMessage(text), { kind: 'summary', period: 'last_month' }, text);
+  }
+  for (const text of ['resumo de outubro', 'resumos', 'como estou gastando?']) assert.throws(() => parseMessage(text), text);
+  assert.equal(parseMessage('Gastei 10 no mercado categoria resumo').kind, 'transaction');
+});

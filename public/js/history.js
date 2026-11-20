@@ -8,7 +8,7 @@ export const HISTORY_LIMIT = 10;
 const VERSION = 'v1';
 const MAX_TEXT = 2000;
 const ROLES = new Set(['user', 'assistant']);
-const KINDS = new Set(['text', 'error', 'warning', 'preview', 'spending', 'batch', 'clarify', 'search']);
+const KINDS = new Set(['text', 'error', 'warning', 'preview', 'spending', 'batch', 'clarify', 'search', 'summary']);
 const STATUSES = new Set(['pending', 'confirmed', 'cancelled', 'failed', 'undone', 'partial', 'done']);
 
 export function historyPrefix(userId) {
@@ -54,6 +54,7 @@ function sanitizeData(kind, data) {
       account: text(data.account, 200),
       payees: Array.isArray(data.payees) ? data.payees.slice(0, 10).map((payee) => text(payee, 200)) : [],
       category: data.category ? text(data.category, 200) : null,
+      notes: data.notes ? text(data.notes, 200) : null,
       count: number(data.count) ?? 0,
       total: number(data.total) ?? 0,
       transactions: Array.isArray(data.transactions) ? data.transactions.slice(0, 20).map((transaction) => ({
@@ -61,7 +62,36 @@ function sanitizeData(kind, data) {
         amount: number(transaction?.amount) ?? 0,
         payee: transaction?.payee ? text(transaction.payee, 200) : null,
         category: transaction?.category ? text(transaction.category, 200) : null,
+        ...(transaction?.notes ? { notes: text(transaction.notes, 300) } : {}),
       })) : [],
+    };
+  }
+  if (kind === 'summary') {
+    const cents = (value) => number(value) ?? 0;
+    const budget = data.budget && typeof data.budget === 'object' ? {
+      budgeted: cents(data.budget.budgeted),
+      spent: cents(data.budget.spent),
+      topCategories: Array.isArray(data.budget.topCategories) ? data.budget.topCategories.slice(0, 3).map((category) => ({ name: text(category?.name, 200), spent: cents(category?.spent) })) : [],
+      overspent: Array.isArray(data.budget.overspent) ? data.budget.overspent.slice(0, 5).map((category) => ({ name: text(category?.name, 200), balance: cents(category?.balance) })) : [],
+      overspentCount: cents(data.budget.overspentCount),
+    } : null;
+    return {
+      month: text(data.month, 7),
+      from: text(data.from, 10),
+      to: text(data.to, 10),
+      account: text(data.account, 200),
+      expenses: cents(data.expenses),
+      expenseCount: cents(data.expenseCount),
+      incomes: cents(data.incomes),
+      incomeCount: cents(data.incomeCount),
+      net: cents(data.net),
+      topExpenses: Array.isArray(data.topExpenses) ? data.topExpenses.slice(0, 3).map((expense) => ({
+        date: text(expense?.date, 10),
+        amount: cents(expense?.amount),
+        payee: expense?.payee ? text(expense.payee, 200) : null,
+        category: expense?.category ? text(expense.category, 200) : null,
+      })) : [],
+      budget,
     };
   }
   if (kind === 'preview') {
