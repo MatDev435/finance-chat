@@ -90,12 +90,13 @@ Sincroniza e devolve as contas abertas e dentro do orçamento: `{ accounts: [{ i
 - Transação: `{ kind: "transaction", pendingId, expiresAt, preview: { command, account, category, transaction, text } }`. Em compras divididas, `category` é `null`, `preview.splits` traz `[{ amount, category: { id, name } }]` e `transaction.subtransactions` traz as partes. `categoryId` não pode ser usado com divisões (`400`).
 - `Quanto tenho em X?`: `{ kind: "category-available", message, category, month, available }`.
 - `Posso gastar R$ N com X?`: `{ kind: "category-can-spend", message, category, month, available, requested, remaining, canSpend }`.
+- Resumo do mês (`como estou esse mês?`, `resumo do mês passado`; outros meses pelo modo IA): `{ kind: "summary", message, summary: { month, from, to, account, expenses, expenseCount, incomes, incomeCount, net, topExpenses: [{ date, amount, payee, category, notes }], budget: { budgeted, spent, topCategories: [{ name, spent }], overspent: [{ name, balance }], overspentCount } | null } }` (centavos; `budget` é do orçamento inteiro, `null` se o orçamento não tem aquele mês).
 
 Com o modo IA ativado, a mensagem que o parser não entende (ou entende só em parte) é interpretada pela IA, e a resposta pode ser também:
 
 - Lote: `{ kind: "batch", pendingId, expiresAt, account, items: [preview], text }`. Confirmado de uma vez com `POST /api/chat/confirm`.
 - Esclarecimento: `{ kind: "clarify", draftId, expiresAt, message, items, missing: [{ item, part, field, label, typed, suggestions }], categories: [{ id, name }] }`. Nada a confirmar ainda; responda no chat ou use `POST /api/chat/draft`.
-- Busca: `{ kind: "search", message, search: { result, type, from, to, account, payees, category, minAmount, maxAmount, count, total, transactions: [{ date, amount, payee, category, notes }] } }` (centavos).
+- Busca: `{ kind: "search", message, search: { result, type, from, to, account, payees, notes, payeeAsNotes, category, minAmount, maxAmount, count, total, transactions: [{ date, amount, payee, category, notes }] } }` (centavos). `notes` é o texto procurado nas notas; `payeeAsNotes: true` quando nenhum beneficiário tinha o nome pedido e o termo foi procurado nas notas. Com `result: "by_month"`, vêm também `months: [{ month: "YYYY-MM", count, total }]` (todos os meses do período, inclusive vazios) e `truncated` (período cortado nos últimos 24 meses). Uma soma (`result: "sum"`) cujo período cobre de 2 a 24 meses também traz `months`, usado no gráfico de barras. Perguntas como `quanto gastei com alimentação em outubro?` ou `... nos últimos 3 meses por mês?` são respondidas como busca também sem o modo IA (`source: "parser"`).
 - Várias respostas: `{ kind: "answers", answers: [...] }`.
 - Texto: `{ kind: "text", message }` (perguntas de esclarecimento, pedidos fora do escopo, rascunho descartado).
 
@@ -117,18 +118,19 @@ A confirmação também devolve `undoId`, `undoExpiresAt` e `undoTtlMs` quando a
 
 Para um lote (`kind: "batch"` na prévia), conta e categorias de todos os itens são revalidadas antes da primeira gravação (qualquer problema: nada gravado). Depois os itens são gravados em ordem, parando na primeira falha:
 
-- `200 { kind: "batch", complete, synced, account, results: ["written" | "uncertain" | "skipped"], message }`. Com `complete: false`, `message` lista o que foi registrado, o que ficou incerto (verifique no Actual) e o que não foi enviado. Lotes não têm `undoId` e encerram o desfazer da conversa.
+- `200 { kind: "batch", complete, synced, account, results: ["written" | "uncertain" | "skipped"], message }`. Com `complete: false`, `message` lista o que foi registrado, o que ficou incerto (verifique no Actual) e o que não foi enviado.
+- Um lote completo cujos IDs foram identificados devolve também `undoId`, `undoExpiresAt` e `undoTtlMs`: o desfazer apaga o lote inteiro. Um lote interrompido não tem `undoId` e encerra o desfazer da conversa.
 
 ### `POST /api/chat/undo`
 
-`{ accountId, undoId? }`: desfaz a última transação confirmada nesta conversa. Sem `undoId`, usa a mais recente; a mensagem `desfazer` em `/api/chat/preview` faz o mesmo e responde com `kind: "undo"`.
+`{ accountId, undoId? }`: desfaz a última confirmação desta conversa (uma transação ou um lote inteiro). Sem `undoId`, usa a mais recente; a mensagem `desfazer` em `/api/chat/preview` faz o mesmo e responde com `kind: "undo"`.
 
 - `200 { kind: "undo", undoneId, synced, message }`: transação apagada (com `synced: false`, apagada na cópia local e enviada na próxima sincronização).
 - `409 NO_UNDO | UNDO_EXPIRED`: não há o que desfazer (outra conversa, outro usuário, já desfeita ou prazo de 10 minutos esgotado).
-- `409 UNDO_NOT_FOUND | UNDO_CHANGED`: a transação foi apagada ou alterada no Actual; nada foi feito.
+- `409 UNDO_NOT_FOUND | UNDO_CHANGED`: a transação (ou uma das transações do lote) foi apagada ou alterada no Actual; nada foi feito.
 - `409 CONNECTION_CHANGED`: a conexão mudou depois do registro.
 - `503 ACTUAL_ERROR`: Actual indisponível; nada foi feito e o desfazer continua disponível.
-- `503 UNDO_UNCERTAIN`: a exclusão falhou no meio. Verifique no Actual.
+- `503 UNDO_UNCERTAIN`: a exclusão falhou no meio (num lote, a mensagem diz quantas já foram apagadas). Verifique no Actual.
 
 ### `POST /api/chat/cancel`
 

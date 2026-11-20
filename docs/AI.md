@@ -10,8 +10,9 @@ O modo IA é **opcional, individual e desativado por padrão**. Cada usuário us
 | Várias movimentações numa mensagem, com uma prévia única do lote | Escolher uma categoria por conta própria |
 | Compras divididas descritas livremente ("metade alimentação, metade livre") | Editar, apagar ou transferir transações |
 | Saldo de categorias e simulações ("se eu gastar 80 em transporte, quanto sobra?") | Desfazer lançamentos (o `desfazer` continua só por comando ou botão) |
-| Buscar e somar transações da conta da conversa ("quanto gastei no McDonald's nos últimos 3 meses?") | Ver outras contas, saldos ou o histórico do chat |
+| Buscar e somar transações da conta da conversa ("quanto gastei no McDonald's nos últimos 3 meses?"), inclusive pelo texto das notas ("quanto gastei com Monster?") | Ver outras contas, saldos ou o histórico do chat |
 | Preencher as notas com o que foi comprado ou o motivo ("Gastei 10 no mercado com um monster": beneficiário "mercado", notas "Monster") | |
+| Resumo de qualquer mês ("resumo de outubro", "como foi o mês passado?"); as frases fixas ("como estou esse mês?", "resumo do mês") nem passam pela IA | Receber valores do seu orçamento: o resumo é calculado no servidor |
 | Perguntar o que falta e continuar a conversa ("Alimentação") | Executar código, consultas ou ações fora do contrato |
 
 ## Como ativar
@@ -90,7 +91,7 @@ Uma chamada à **Responses API** com **Structured Outputs** (`text.format: json_
 }
 ```
 
-Intenções: `create_transaction`, `category_balance`, `simulate_spend`, `search_transactions`, `undo`, `unsupported`. O schema completo e as instruções fixas estão em `src/ai/plan-schema.js`; a validação campo a campo, em `src/ai/plan.js` (tipos, enums, tamanhos, valores positivos, datas). Um plano fora do contrato é recusado inteiro (`AI_INVALID_PLAN`).
+Intenções: `create_transaction`, `category_balance`, `simulate_spend`, `search_transactions`, `month_summary`, `undo`, `unsupported`. O schema completo e as instruções fixas estão em `src/ai/plan-schema.js`; a validação campo a campo, em `src/ai/plan.js` (tipos, enums, tamanhos, valores positivos, datas). Um plano fora do contrato é recusado inteiro (`AI_INVALID_PLAN`).
 
 O que vai para a OpenAI em cada chamada:
 
@@ -120,7 +121,9 @@ A resposta digitada ("Alimentação", "categoria saúde", "50") é resolvida **s
 - Vários: uma prévia do lote inteiro, aprovada uma vez (`pendingId` de uso único, removido antes de gravar).
 - Antes da primeira gravação, conta e todas as categorias são revalidadas: qualquer problema significa **nada gravado**.
 - A gravação é em ordem e para na primeira falha. O resultado informa cada item: ✓ registrada, ? resultado incerto (verifique no Actual antes de reenviar), ✗ não registrada (nunca enviada). Não há reenvio automático.
-- **Lotes não podem ser desfeitos** pelo Finance Chat. Depois de um lote, o `desfazer` da conversa é encerrado, para nunca apagar uma movimentação anterior por engano.
+- **Um lote completo pode ser desfeito inteiro** por 10 minutos (botão **↶ Desfazer** ou `desfazer`), como um lançamento único. Na gravação, os IDs criados são identificados pela diferença entre duas leituras da conta (no intervalo de datas do lote) e pareados com os itens por data e valor; se não fecharem exatamente, o desfazer não é oferecido.
+- O desfazer de um lote confere **todas** as movimentações antes de apagar qualquer uma (mesma conta, data e valor). Se uma foi apagada ou alterada no Actual, **nada** é desfeito. Uma falha no meio da exclusão é informada como incerta, dizendo quantas já foram apagadas.
+- Um lote interrompido (algum item incerto ou não enviado) não pode ser desfeito, e o `desfazer` da conversa é encerrado, para nunca apagar uma movimentação anterior por engano.
 - Divisões seguem as regras do parser: de 2 a 10 partes e soma exata. Sem total, o total é a soma das partes informadas; com total diferente, a mensagem é recusada com a diferença.
 
 ## Rascunhos e continuidade
@@ -137,12 +140,25 @@ Reiniciar o servidor esquece os dois, como já acontecia com as prévias.
 Implementada em `src/search.js` com a AQL do `@actual-app/api` (`q()` + `aqlQuery()`, executada em SQL na cópia local do orçamento). O modelo **não escreve consultas**: preenche filtros validados, e o backend monta a consulta.
 
 - **Sempre e só a conta da conversa**, independentemente do que o modelo devolver.
-- Filtros: beneficiário (ignora maiúsculas, acentos, espaços e pontuação; depois nomes que contêm o termo; depois grafias próximas), categoria (regras do parser), tipo (despesa, receita, qualquer), período, valor mínimo e máximo.
-- Resultados: lista (até 20, padrão 5), soma, contagem, maior e menor valor. Totais e contagens vêm do Actual; as respostas são textos fixos, **sem segunda chamada à IA**.
+- Filtros: beneficiário (ignora maiúsculas, acentos, espaços e pontuação; depois nomes que contêm o termo; depois grafias próximas), texto das notas, categoria (regras do parser), tipo (despesa, receita, qualquer), período, valor mínimo e máximo.
+- **Notas**: "contém", sem diferenciar maiúsculas e acentos (`$like`, que o Actual executa sobre as notas normalizadas). Os curingas digitados (`%`, `?`) são tratados como texto. Em compras divididas, a nota fica na compra inteira: sem filtro de categoria a compra conta uma vez; com filtro de categoria, a parte daquela categoria conta pela nota da compra.
+- Se o modelo indicar um beneficiário que não existe ("quanto gastei com Monster?"), o termo é procurado nas notas, e a resposta avisa isso.
+- Resultados: lista (até 20, padrão 5), soma, contagem, maior e menor valor, e **por mês** (`by_month`: o total de cada mês do período, meses vazios incluídos; sem período, o ano atual; "últimos N meses" vira os N meses do calendário; no máximo 24).
+- Somas que cobrem 2 meses ou mais e as respostas por mês trazem um **gráfico de barras vertical** no card (`public/js/month-chart.js`). Ele é uma lista HTML, uma barra por item: o leitor de tela lê cada mês com o valor exato e a quantidade ("Outubro de 2026: R$ 92,50, 2 despesas"), além do título, de um resumo e da legenda (maior mês e média), que são texto. As barras e os rótulos curtos são decorativos (`aria-hidden`). Se as barras não couberem, a área rola para os lados e vira uma região focável pelo teclado. Num período móvel ("últimos 4 meses"), o primeiro mês parcial aparece hachurado e com nota.
+- Perguntas comuns ("quanto gastei com alimentação em outubro?", "... nos últimos 3 meses por mês") são respondidas pelo parser, sem chamada. O nome vira categoria se for exatamente uma categoria do orçamento, ou beneficiário se existir um com esse nome; senão, a mensagem inteira vai para a IA. Totais e contagens vêm do Actual; as respostas são textos fixos, **sem segunda chamada à IA**.
 - Transferências entre contas e o saldo inicial ficam de fora.
 - Divisões são contadas uma vez: com filtro de categoria, contam as partes daquela categoria (`splits: 'inline'`); sem filtro de categoria, conta a compra inteira (`splits: 'none'`).
 - Períodos (`src/periods.js`) viram datas explícitas a partir de hoje, e a resposta mostra o intervalo usado.
 - Comportamentos verificados no motor real (`test/search-aql.test.js`, offline, com dados fictícios): partes herdam o beneficiário da compra, cada condição AQL aplica só o primeiro operador (por isso os intervalos são listas de condições) e `$oneof` interpola valores no SQL (por isso recebe só IDs lidos do orçamento).
+
+## Resumo do mês
+
+Implementado em `src/summary.js`, só leitura. O modelo (ou o parser, nas frases fixas) só diz **qual mês**; nenhum valor do orçamento é enviado à OpenAI.
+
+- **Conta da conversa** (AQL, mesmas regras da busca): despesas e receitas do período, com contagem, resultado e as 3 maiores despesas.
+- **Orçamento do mês, todas as contas** (`getBudgetMonth`): total gasto e orçado nas categorias de despesa, as 3 categorias com mais gasto e as estouradas (saldo negativo).
+- O mês atual vai do dia 1 até hoje; meses anteriores, inteiros. Um mês que ainda não começou é recusado. Se o orçamento não tem aquele mês, a parte da conta é respondida mesmo assim.
+- Resposta por template fixo e um card no chat; sem segunda chamada à IA.
 
 ## Modelos
 
@@ -201,7 +217,7 @@ O cache de prompt usa o **modo explícito**, com um único ponto de cache depois
 
 - A qualidade da interpretação depende do modelo e **não foi validada com chamadas reais**: os testes automatizados simulam as respostas da OpenAI (nenhum teste usa rede, chave ou créditos).
 - Rascunhos e filtros de busca vivem em memória: reiniciar o servidor os apaga.
-- Lotes não podem ser desfeitos pelo Finance Chat.
-- A busca cobre a conta da conversa e não busca por texto das notas.
+- Lotes interrompidos por uma falha não podem ser desfeitos pelo Finance Chat.
+- A busca cobre só a conta da conversa.
 - Perguntas mistas respondem só às perguntas; lançamentos condicionais nunca são executados.
 - A tabela de preços precisa ser atualizada à mão quando a OpenAI mudar os preços (nova versão em `src/ai/pricing.js`).

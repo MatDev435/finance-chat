@@ -24,9 +24,13 @@ O modelo devolve um único plano JSON (Structured Outputs, `strict: true`) e o b
 
 A categoria vem sempre do usuário (escrita ou escolhida na tela); as sugestões do modelo são só sugestões. Lançamentos sempre terminam numa prévia confirmada. O `desfazer` continua sendo apenas comando ou botão. Mensagens que misturam perguntas e lançamentos só respondem às perguntas.
 
-## Lotes sem desfazer
+## Desfazer lotes só quando completos e conferidos
 
-Um lote é confirmado uma vez e gravado em ordem, parando na primeira falha. Desfazer N gravações com resultados possivelmente incertos no meio seria arriscado, então lotes não são desfeitos pelo Finance Chat, e o desfazer da conversa é encerrado depois de um lote.
+Um lote é confirmado uma vez e gravado em ordem, parando na primeira falha. Só um lote **completo** cujos IDs foram identificados com certeza (diferença entre duas leituras da conta, pareada por data e valor) pode ser desfeito, e só inteiro: todas as movimentações são conferidas antes da primeira exclusão, e qualquer diferença cancela tudo. Lotes interrompidos têm resultados possivelmente incertos no meio; desfazê-los seria arriscado, então não são desfeitos, e o desfazer da conversa é encerrado.
+
+## Resumo do mês calculado no servidor
+
+O modelo só identifica o mês pedido; os números vêm do Actual e o texto é um template. Mandar os valores para o LLM escrever uma análise exporia dados financeiros, custaria uma segunda chamada e arriscaria números errados.
 
 ## Busca pela AQL, restrita à conta da conversa
 

@@ -141,3 +141,33 @@ test('AI entries keep display fields only: batches, clarifications and searches'
   assert.deepEqual(search.data.transactions, [{ date: '2026-11-16', amount: -3800, payee: "McDonald's", category: 'Alimentação' }]);
   assert.equal(sanitizeEntry({ id: 'x', role: 'assistant', kind: 'search', text: '', at: 1, ai: 'yes' }).ai, undefined);
 });
+
+test('month summaries and search notes keep display fields only', () => {
+  const summary = sanitizeEntry({
+    id: 'r1', role: 'assistant', kind: 'summary', text: 'Resumo de novembro de 2026', at: 1, accountId: 'acc-1',
+    data: {
+      month: '2026-11', from: '2026-11-01', to: '2026-11-20', account: 'Nubank', accountId: 'acc-1',
+      expenses: 36500, expenseCount: 4, incomes: 500000, incomeCount: 1, net: 463500,
+      topExpenses: [{ date: '2026-11-01', amount: -30000, payee: 'Mercado', category: 'Dividida em categorias', notes: 'compra do mês', id: 't1' }],
+      budget: { budgeted: 50000, spent: 44277, topCategories: [{ name: 'Alimentação', spent: 29777, id: 'cat-food' }], overspent: [{ name: 'Alimentação', balance: -4777 }], overspentCount: 1 },
+    },
+  });
+  assert.deepEqual(summary.data.topExpenses, [{ date: '2026-11-01', amount: -30000, payee: 'Mercado', category: 'Dividida em categorias' }]);
+  assert.deepEqual(summary.data.budget.topCategories, [{ name: 'Alimentação', spent: 29777 }]);
+  assert.equal(JSON.stringify(summary).includes('acc-1'), false);
+  assert.equal(JSON.stringify(summary).includes('cat-food'), false);
+  assert.equal(sanitizeEntry({ id: 'r2', role: 'assistant', kind: 'summary', text: '', at: 1, data: { month: '2026-10', budget: null } }).data.budget, null);
+
+  const search = sanitizeEntry({
+    id: 's2', role: 'assistant', kind: 'search', text: '', at: 1,
+    data: { result: 'sum', type: 'expense', to: '2026-11-19', notes: 'Monster', transactions: [{ date: '2026-11-16', amount: -3800, notes: 'Big Mac e Monster' }] },
+  });
+  assert.equal(search.data.notes, 'Monster');
+  assert.equal(search.data.transactions[0].notes, 'Big Mac e Monster');
+});
+
+test('month-by-month searches keep their months', () => {
+  const entry = sanitizeEntry({ id: 'm1', role: 'assistant', kind: 'search', text: '', at: 1, data: { result: 'by_month', type: 'expense', to: '2026-11-20', months: [{ month: '2026-10', count: 2, total: -12500, extra: 'x' }] } });
+  assert.equal(entry.data.result, 'by_month');
+  assert.deepEqual(entry.data.months, [{ month: '2026-10', count: 2, total: -12500 }]);
+});

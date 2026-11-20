@@ -101,3 +101,31 @@ export function resolvePeriod(spec, today) {
   }
   return null;
 }
+
+/** At most this many months in a month-by-month answer. */
+export const MAX_MONTHS = 24;
+
+/**
+ * Calendar months covered by a resolved range, each clipped to the range:
+ * ('2026-08-15', '2026-10-03') → [{ month: '2026-08', from: '2026-08-15', to: '2026-08-31' }, …].
+ */
+export function monthSpans(from, to) {
+  const spans = [];
+  let [year, month] = from.split('-').map(Number);
+  const [lastYear, lastMonth] = to.split('-').map(Number);
+  while (year < lastYear || (year === lastYear && month <= lastMonth)) {
+    const start = `${year}-${pad(month)}-01`;
+    const end = `${year}-${pad(month)}-${pad(lastDay(year, month))}`;
+    spans.push({ month: `${year}-${pad(month)}`, from: start < from ? from : start, to: end > to ? to : end });
+    month += 1;
+    if (month > 12) { month = 1; year += 1; }
+  }
+  return spans;
+}
+
+/** The first day of the month `count - 1` months before `to` (the start of the last `count` calendar months). */
+export function startOfLastMonths(to, count) {
+  const [year, month] = to.split('-').map(Number);
+  const total = year * 12 + (month - 1) - (count - 1);
+  return `${Math.floor(total / 12)}-${pad((total % 12) + 1)}-01`;
+}

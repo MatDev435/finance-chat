@@ -29,10 +29,10 @@ function ago(days) {
 }
 
 const TRANSACTIONS = [
-  { id: 't1', account: 'acc-nubank', date: ago(3), amount: -3800, payee: 'p-mc', category: 'cat-food' },
+  { id: 't1', account: 'acc-nubank', date: ago(3), amount: -3800, payee: 'p-mc', category: 'cat-food', notes: 'Big Mac e Monster' },
   { id: 't2', account: 'acc-nubank', date: ago(40), amount: -5000, payee: 'p-mc', category: 'cat-food' },
-  { id: 't3', account: 'acc-nubank', date: ago(10), amount: -30000, payee: 'p-market', subtransactions: [{ amount: -15000, category: 'cat-food' }, { amount: -15000, category: 'cat-free' }] },
-  { id: 't4', account: 'acc-nubank', date: ago(20), amount: -12000, payee: 'p-market', category: 'cat-food' },
+  { id: 't3', account: 'acc-nubank', date: ago(10), amount: -30000, payee: 'p-market', notes: 'Compra do mês, com monster', subtransactions: [{ amount: -15000, category: 'cat-food' }, { amount: -15000, category: 'cat-free' }] },
+  { id: 't4', account: 'acc-nubank', date: ago(20), amount: -12000, payee: 'p-market', category: 'cat-food', notes: 'Pão de açúcar' },
   { id: 't5', account: 'acc-nubank', date: ago(0), amount: -4500, payee: 'p-pharmacy', category: 'cat-health' },
   { id: 't6', account: 'acc-nubank', date: ago(0), amount: -2000, payee: 'p-pharmacy', category: 'cat-health' },
   { id: 't7', account: 'acc-nubank', date: ago(5), amount: 20000, payee: 'p-joao', category: 'cat-extra' },
@@ -40,7 +40,7 @@ const TRANSACTIONS = [
   { id: 't9', account: 'acc-nubank', date: '2025-03-10', amount: -7000, payee: 'p-market', category: 'cat-food' },
   { id: 't10', account: 'acc-nubank', date: '2025-03-20', amount: -3000, payee: 'p-mc', category: 'cat-food' },
   { id: 't11', account: 'acc-nubank', date: '2025-01-01', amount: 100000, payee: null, category: null, starting_balance_flag: true },
-  { id: 'tI', account: 'acc-inter', date: ago(1), amount: -9999, payee: 'p-mc', category: 'cat-food' },
+  { id: 'tI', account: 'acc-inter', date: ago(1), amount: -9999, payee: 'p-mc', category: 'cat-food', notes: 'Monster' },
 ];
 
 async function searchApp() {
@@ -61,7 +61,7 @@ test('"Qual foi a última vez que comi no McDonald\'s?": only this chat\'s accou
   const body = await ask({ payee: 'mc donalds', type: 'expense', period: 'all', result: 'list', order: 'newest', limit: 1 });
   assert.equal(body.kind, 'search');
   assert.equal(body.source, 'ai');
-  assert.deepEqual(body.search.transactions, [{ date: ago(3), amount: -3800, payee: "McDonald's", category: 'Alimentação', notes: null }]);
+  assert.deepEqual(body.search.transactions, [{ date: ago(3), amount: -3800, payee: "McDonald's", category: 'Alimentação', notes: 'Big Mac e Monster' }]);
   assert.equal(money(body.message), `A última despesa com McDonald's foi de R$ 38,00 em ${ago(3).split('-').reverse().join('/')} (Alimentação).`);
   assert.equal(body.search.account, 'Nubank');
   assert.equal(JSON.stringify(body).includes('9999'), false, 'the other account is never searched');
@@ -156,7 +156,9 @@ test('no matching payee, an unknown category or an invalid range give clear answ
   const { app, ask } = await searchApp();
   const nobody = await ask({ payee: 'Xyzabc', type: 'expense', period: 'all', result: 'list' });
   assert.equal(nobody.search.count, 0);
-  assert.equal(nobody.message, 'Não encontrei despesas com Xyzabc nesta conta em todo o histórico.');
+  // No payee by that name: the term is looked up in the notes, and the answer says so.
+  assert.equal(nobody.message, 'Não encontrei um beneficiário chamado “Xyzabc”, então procurei nas notas das transações. Não encontrei despesas com “Xyzabc” nas notas nesta conta em todo o histórico.');
+  assert.deepEqual([nobody.search.payees, nobody.search.notes, nobody.search.payeeAsNotes], [[], 'Xyzabc', true]);
   const category = await ask({ category: 'Alimentaçao extra', type: 'expense', period: 'all', result: 'sum' });
   assert.equal(category.kind, 'text');
   assert.match(category.message, /não existe no Actual Budget/);
@@ -173,5 +175,30 @@ test('the plan cannot widen the search: unknown fields such as an account are dr
   app.openai.replyPlan(raw);
   const { body } = await ana.post('/api/chat/preview', { accountId: 'acc-nubank', message: 'quanto gastei no mc em todas as contas?' });
   assert.deepEqual([body.search.account, body.search.total], ['Nubank', -11800]);
+  await app.close();
+});
+
+test('"Quanto gastei com Monster?": the notes are searched (case and accents ignored), in this account only', async () => {
+  const { app, ask } = await searchApp();
+  const monster = await ask({ notes: 'MONSTER', type: 'expense', period: 'all', result: 'sum' });
+  // t1 (38,00) + t3 (300,00, the whole split purchase once); the other account's "Monster" is not counted.
+  assert.deepEqual([monster.search.count, monster.search.total, monster.search.notes], [2, -33800, 'MONSTER']);
+  assert.equal(money(monster.message), 'Você gastou R$ 338,00 com “MONSTER” nas notas em todo o histórico (2 despesas).');
+  const pao = await ask({ notes: 'pao de acucar', type: 'expense', period: 'all', result: 'list' });
+  assert.deepEqual(pao.search.transactions.map((transaction) => transaction.notes), ['Pão de açúcar']);
+  await app.close();
+});
+
+test('a payee that does not exist is looked up in the notes; with a category, a split purchase\'s note counts for its part', async () => {
+  const { app, ask } = await searchApp();
+  const fallback = await ask({ payee: 'monster', type: 'expense', period: 'all', result: 'count' });
+  assert.equal(fallback.search.count, 2);
+  assert.match(fallback.message, /^Não encontrei um beneficiário chamado “monster”, então procurei nas notas/);
+  const food = await ask({ notes: 'monster', category: 'alimentação', type: 'expense', period: 'all', result: 'sum' });
+  // t1 (food, 38,00) + the food part of t3 (150,00): the free part is not counted.
+  assert.deepEqual([food.search.count, food.search.total], [2, -18800]);
+  // A payee that exists is never replaced by a notes search.
+  const mc = await ask({ payee: 'mcdonalds', type: 'expense', period: 'all', result: 'count' });
+  assert.deepEqual([mc.search.payees, mc.search.notes, mc.search.payeeAsNotes], [["McDonald's"], null, false]);
   await app.close();
 });

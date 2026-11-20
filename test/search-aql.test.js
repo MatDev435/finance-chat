@@ -10,7 +10,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildFilter, executeSearch, matchPayees } from '../src/search.js';
+import { buildFilter, executeSearch, matchPayees, notesPattern } from '../src/search.js';
+import { accountTotals, budgetOverview } from '../src/summary.js';
 
 const api = await import('@actual-app/api');
 const dataDir = mkdtempSync(join(tmpdir(), 'finance-chat-aql-'));
@@ -40,13 +41,15 @@ test.before(async () => {
       await api.addTransactions(ids.checking, [
         { date: '2026-08-10', amount: -4000, payee_name: "McDonald's", category: ids.food },
         { date: '2026-10-05', amount: -5000, payee_name: "McDonald's", category: ids.food },
-        { date: '2026-10-20', amount: -30000, payee_name: 'Mercado', subtransactions: [{ amount: -15000, category: ids.food }, { amount: -15000, category: ids.free }] },
-        { date: '2026-10-31', amount: -2000, payee_name: 'Padaria', category: ids.food },
-        { date: '2026-11-01', amount: -1000, payee_name: 'Padaria', category: ids.food },
+        { date: '2026-10-20', amount: -30000, payee_name: 'Mercado', notes: 'Compra no Pão de Açúcar, 50% de desconto', subtransactions: [{ amount: -15000, category: ids.food }, { amount: -15000, category: ids.free }] },
+        { date: '2026-10-31', amount: -2000, payee_name: 'Padaria', category: ids.food, notes: 'Pão de queijo' },
+        { date: '2026-11-01', amount: -1000, payee_name: 'Padaria', category: ids.food, notes: 'PAO francês' },
         { date: '2026-11-02', amount: 20000, payee_name: 'João', category: null },
         { date: '2026-11-03', amount: -10000, payee: transfer.id },
       ], { runTransfers: true });
       await api.addTransactions(ids.savings, [{ date: '2026-10-06', amount: -999, payee_name: "McDonald's", category: ids.food }]);
+      await api.setBudgetAmount('2026-10', ids.food, 20000);
+      await api.setBudgetAmount('2026-10', ids.free, 30000);
     });
   });
   const payees = await api.getPayees();
@@ -111,4 +114,62 @@ test('payee matching ignores case, accents and punctuation, and never matches tr
   assert.deepEqual(matchPayees(payees, 'Poupança'), []);
   const empty = await executeSearch(api, spec({ payeeIds: [ids.padaria], from: '2026-12-01', to: '2026-12-31', result: 'sum' }));
   assert.deepEqual([empty.count, empty.total], [0, 0]);
+});
+
+test('notes: a case- and accent-insensitive "contains", with the purchase note counting for its split parts', async () => {
+  assert.equal(notesPattern('  Pão  de AÇÚCAR '), '%pao de acucar%');
+  const pao = await executeSearch(api, spec({ notesPattern: notesPattern('pão'), result: 'list' }));
+  // Both Padaria notes ("Pão de queijo", "PAO francês") and the Mercado purchase ("Pão de Açúcar"), counted once.
+  assert.deepEqual(pao.rows.map((row) => row.amount), [-1000, -2000, -30000]);
+  const queijo = await executeSearch(api, spec({ notesPattern: notesPattern('QUEIJO'), result: 'sum' }));
+  assert.deepEqual([queijo.count, queijo.total], [1, -2000]);
+  // Category search over split parts: the food part matches through the parent's note, the other part does not.
+  const foodPart = await executeSearch(api, spec({ categoryId: ids.food, notesPattern: notesPattern('pao de acucar'), result: 'sum' }));
+  assert.deepEqual([foodPart.count, foodPart.total], [1, -15000]);
+});
+
+test('notes: wildcards typed by the user are literal characters', async () => {
+  assert.equal(notesPattern('50%'), '%50\\%%');
+  const percent = await executeSearch(api, spec({ notesPattern: notesPattern('50%'), result: 'count' }));
+  assert.equal(percent.count, 1);
+  // Unescaped, "?" would match any single character (and "%" anything).
+  const question = await executeSearch(api, spec({ notesPattern: notesPattern('?'), result: 'count' }));
+  assert.equal(question.count, 0);
+  const anything = await executeSearch(api, spec({ notesPattern: notesPattern('%'), result: 'count' }));
+  assert.equal(anything.count, 1);
+  // With an "any" amount range ($or) the notes condition is combined with $and.
+  const filter = buildFilter(spec({ type: 'any', minCents: 100, notesPattern: '%pao%' }));
+  assert.ok(filter.$and && !filter.$or);
+  const combined = await executeSearch(api, spec({ type: 'any', minCents: 100, notesPattern: notesPattern('pao'), result: 'count' }));
+  assert.equal(combined.count, 3);
+});
+
+test('month summary on the real engine: account totals via AQL and the budget month (all accounts)', async () => {
+  const totals = await accountTotals(api, { accountId: ids.checking, from: '2026-10-01', to: '2026-10-31' });
+  // McDonald's 50, Mercado 300 (split, once), Padaria 20; the other account and transfers are not counted.
+  assert.deepEqual([totals.expenses, totals.expenseCount, totals.incomes, totals.incomeCount], [37000, 3, 0, 0]);
+  assert.deepEqual(totals.top.map((row) => row.amount), [-30000, -5000, -2000]);
+  assert.equal(totals.top[0].is_parent, true);
+  const november = await accountTotals(api, { accountId: ids.checking, from: '2026-11-01', to: '2026-11-30' });
+  assert.deepEqual([november.expenses, november.incomes, november.incomeCount], [1000, 20000, 1]);
+
+  const budget = budgetOverview(await api.getBudgetMonth('2026-10'));
+  // Food (all accounts): 50 + 150 + 20 + 9,99 = 229,99 of 200 budgeted; Livre: 150 of 300.
+  assert.deepEqual([budget.budgeted, budget.spent], [50000, 37999]);
+  assert.deepEqual(budget.topCategories, [{ name: 'Alimentação', spent: 22999 }, { name: 'Livre', spent: 15000 }]);
+  assert.deepEqual(budget.overspent, [{ name: 'Alimentação', balance: -2999 }]);
+});
+
+test('month by month on the real engine: one total per calendar month, empty months included, splits by category', async () => {
+  const food = await executeSearch(api, spec({ categoryId: ids.food, from: '2026-08-15', to: '2026-11-19', result: 'by_month' }));
+  // August starts on the 15th (no transaction after it), 10/05 McDonald's + the split's food part + 10/31 Padaria, 11/01 Padaria.
+  assert.deepEqual([food.count, food.total], [4, -23000]);
+  assert.deepEqual(food.months, [
+    { month: '2026-08', count: 0, total: 0 },
+    { month: '2026-09', count: 0, total: 0 },
+    { month: '2026-10', count: 3, total: -22000 },
+    { month: '2026-11', count: 1, total: -1000 },
+  ]);
+  const all = await executeSearch(api, spec({ type: 'any', from: '2026-08-01', to: '2026-11-30', result: 'by_month' }));
+  assert.deepEqual(all.months.map((item) => [item.month, item.total]), [['2026-08', -4000], ['2026-09', 0], ['2026-10', -37000], ['2026-11', 19000]]);
 });

@@ -14,7 +14,7 @@
 import { requireChatAccount } from './accounts.js';
 import { contextKey } from './actual.js';
 import { getSynchronizedCategoryAvailability } from './budget-availability.js';
-import { commitTransaction, commitTransactions, prepareItems, prepareTransaction, undoTransaction } from './budget-operations.js';
+import { commitTransaction, commitTransactions, prepareItems, prepareTransaction, undoTransaction, undoTransactions } from './budget-operations.js';
 import { evaluateCategorySpending } from './category-queries.js';
 import * as text from './chat-text.js';
 import { resolveDate } from './dates.js';
@@ -69,12 +69,12 @@ export function localDraftUpdate(missing, message) {
   return { item: field.item, part: field.part, field: 'category', value: name };
 }
 
-export function createChat({ actual, pending, undo, conversations, aiStore, interpreter, search, requireConnection, aiLimiter, isKnownError, log = console }) {
+export function createChat({ actual, pending, undo, conversations, aiStore, interpreter, search, summary, requireConnection, aiLimiter, isKnownError, log = console }) {
   /* ---------- Undo (unchanged rules) ---------- */
 
   /**
-   * Deletes the last transaction confirmed in this chat (or the one of `undoId`),
-   * only while it is undoable and unchanged in Actual.
+   * Deletes the last transaction (or whole batch) confirmed in this chat, or
+   * the one of `undoId`, only while it is undoable and unchanged in Actual.
    */
   async function performUndo(userId, accountId, undoId) {
     const id = typeof undoId === 'string' ? undoId : undo.latestId(userId, accountId);
@@ -89,7 +89,7 @@ export function createChat({ actual, pending, undo, conversations, aiStore, inte
       if (contextKey(connection) !== entry.contextKey) {
         throw new HttpError(409, 'CONNECTION_CHANGED', 'A conexão com o Actual mudou depois do registro. Nada foi desfeito.');
       }
-      result = await actual.run(connection, (api) => undoTransaction(api, entry));
+      result = await actual.run(connection, (api) => (entry.batch ? undoTransactions(api, entry) : undoTransaction(api, entry)));
     } catch (error) {
       if (error.code === 'ACTUAL_ERROR') {
         // Actual was unreachable before deleting: nothing changed, so undo stays available.
@@ -106,7 +106,7 @@ export function createChat({ actual, pending, undo, conversations, aiStore, inte
       kind: 'undo',
       undoneId: entry.id,
       synced: result.synced,
-      message: result.synced
+      message: entry.batch ? text.batchUndoneText(entry, result.synced) : result.synced
         ? `Movimentação desfeita: ${entry.summary}.`
         : `Movimentação desfeita na cópia local (${entry.summary}), mas a sincronização com o servidor Actual falhou. Ela será enviada na próxima sincronização.`,
     };
@@ -214,6 +214,8 @@ export function createChat({ actual, pending, undo, conversations, aiStore, inte
   /* ---------- Deterministic path (unchanged behavior) ---------- */
 
   async function runParsed({ userId, accountId, intent, categoryId, connection }) {
+    if (intent.kind === 'summary') return summary.answer({ accountId, connection, request: { period: intent.period, month: null, year: null } });
+    if (intent.kind === 'search') return search.answer({ userId, accountId, connection, request: intent.search });
     if (intent.kind === 'category-available' || intent.kind === 'category-can-spend') {
       return categoryAnswer({ connection, kind: intent.kind, category: intent.category, amount: intent.amount, categoryId });
     }
@@ -244,6 +246,7 @@ export function createChat({ actual, pending, undo, conversations, aiStore, inte
 
   async function runQuery(userId, accountId, connection, operation) {
     if (operation.kind === 'search') return search.answer({ userId, accountId, connection, request: operation.search });
+    if (operation.kind === 'summary') return summary.answer({ accountId, connection, request: operation.summary });
     if (!operation.category) return textAnswer(operation.kind === 'category-can-spend' ? 'Em qual categoria você quer simular o gasto?' : 'De qual categoria você quer saber o saldo?');
     if (operation.kind === 'category-can-spend' && operation.amount === null) return textAnswer(`Qual valor você quer simular em ${operation.category}?`);
     try {
@@ -275,7 +278,7 @@ export function createChat({ actual, pending, undo, conversations, aiStore, inte
     }
 
     const transactions = operations.filter((operation) => operation.kind === 'transaction');
-    const queries = operations.filter((operation) => ['category-available', 'category-can-spend', 'search'].includes(operation.kind));
+    const queries = operations.filter((operation) => ['category-available', 'category-can-spend', 'search', 'summary'].includes(operation.kind));
     const wantsUndo = operations.some((operation) => operation.kind === 'undo');
     const unsupported = operations.some((operation) => operation.kind === 'unsupported');
 
@@ -383,6 +386,7 @@ export function createChat({ actual, pending, undo, conversations, aiStore, inte
       const connection = requireConnection(userId);
       if (!aiOn || categoryId) return withSource(await runParsed({ userId, accountId, intent, categoryId, connection }), 'parser');
       if (isCompleteParse(intent).complete) {
+        if (intent.kind === 'search') intent.search.strictTerm = true;
         try {
           return withSource(await runParsed({ userId, accountId, intent, connection }), 'parser');
         } catch (error) {
@@ -455,11 +459,24 @@ export function createChat({ actual, pending, undo, conversations, aiStore, inte
       if (isKnownError(error.code)) error.message = `${error.message} Nada foi registrado.`;
       throw error;
     }
-    // A batch cannot be undone; "desfazer" must not delete an older transaction instead.
-    if (result.results.some((status) => status !== 'skipped')) undo.discard(userId, entry.accountId);
     const previews = entry.items.map((item) => item.preview);
     const complete = result.results.every((status) => status === 'written');
     if (!complete) log.error(`[actual] BATCH_INCOMPLETE ${result.results.join(',')}`);
+    // A complete batch whose ids were identified can be undone as a whole, like a single transaction.
+    // Otherwise "desfazer" must not delete an older transaction instead: the chat's undo window ends.
+    const undoable = complete && result.transactionIds
+      ? undo.put(userId, entry.accountId, {
+        batch: true,
+        transactions: entry.items.map((item, index) => ({
+          transactionId: result.transactionIds[index],
+          date: item.mapped.transaction.date,
+          amount: item.mapped.transaction.amount,
+        })),
+        contextKey: entry.contextKey,
+        summaries: previews.map((preview) => text.summaryText(preview)),
+      })
+      : null;
+    if (!undoable && result.results.some((status) => status !== 'skipped')) undo.discard(userId, entry.accountId);
     return {
       ok: true,
       kind: 'batch',
@@ -467,7 +484,8 @@ export function createChat({ actual, pending, undo, conversations, aiStore, inte
       synced: result.synced,
       account: result.account,
       results: result.results,
-      message: text.batchResultText(previews, result),
+      message: text.batchResultText(previews, result, { undoable: Boolean(undoable) }),
+      ...(undoable ? { undoId: undoable.id, undoExpiresAt: undoable.expiresAt, undoTtlMs: Math.max(0, undoable.expiresAt - Date.now()) } : {}),
     };
   }
 

@@ -51,7 +51,9 @@ export function unsyncedText(preview, account) {
 
 /* ---------- Batches ---------- */
 
-export const BATCH_UNDO_NOTE = 'Lotes não podem ser desfeitos pelo Finance Chat. Se precisar, apague as movimentações direto no Actual Budget.';
+export const BATCH_UNDO_NOTE = 'Depois de registrado, o lote inteiro pode ser desfeito por 10 minutos.';
+const BATCH_UNDO_AVAILABLE = 'Para desfazer o lote inteiro, use o botão ↶ Desfazer ou digite “desfazer” (por 10 minutos).';
+const BATCH_NOT_UNDOABLE = 'Não consegui identificar com segurança as movimentações criadas, então este lote não pode ser desfeito pelo Finance Chat. Se precisar, apague-as direto no Actual Budget.';
 
 function shortCategory(preview) {
   return preview.splits ? preview.splits.map((split) => split.category.name).join(' + ') : preview.category.name;
@@ -77,16 +79,25 @@ export function batchPreviewText(previews, account) {
 
 const RESULT_MARKS = { written: '✓ Registrada', uncertain: '? Resultado incerto', skipped: '✗ Não registrada' };
 
-export function batchResultText(previews, { results, synced, account }) {
+export function batchResultText(previews, { results, synced, account }, { undoable = false } = {}) {
   const lines = previews.map((preview, index) => `${RESULT_MARKS[results[index]]}: ${summaryText(preview)} · ${shortCategory(preview)}`);
   const written = results.filter((result) => result === 'written').length;
   if (results.every((result) => result === 'written')) {
     const head = synced
       ? `${written} movimentações registradas com sucesso na conta ${account.name}!`
       : `${written} movimentações registradas na conta ${account.name}, mas a sincronização com o servidor Actual falhou. Elas serão enviadas na próxima sincronização. Não envie de novo.`;
-    return `${head}\n\n${lines.join('\n')}\n\n${BATCH_UNDO_NOTE}`;
+    return `${head}\n\n${lines.join('\n')}\n\n${undoable ? BATCH_UNDO_AVAILABLE : BATCH_NOT_UNDOABLE}`;
   }
   return `O lote foi interrompido por uma falha ao gravar no Actual Budget.\n\n${lines.join('\n')}\n\nVerifique no Actual Budget a movimentação com resultado incerto antes de enviar de novo. Não reenvie as que foram registradas; as não registradas podem ser enviadas em uma nova mensagem.${synced ? '' : '\nA sincronização também falhou: o que foi registrado será enviado na próxima sincronização.'}`;
+}
+
+/** The answer to undoing a whole batch. */
+export function batchUndoneText(entry, synced) {
+  const list = entry.summaries.map((summary) => `• ${summary}`).join('\n');
+  const head = `Lote desfeito: ${entry.transactions.length} movimentações apagadas.`;
+  return synced
+    ? `${head}\n\n${list}`
+    : `${head.replace('apagadas.', 'apagadas na cópia local')}, mas a sincronização com o servidor Actual falhou. Elas serão removidas do servidor na próxima sincronização.\n\n${list}`;
 }
 
 /* ---------- Clarifications (AI drafts) ---------- */
@@ -133,8 +144,8 @@ export function clarifyText(missing, items, { ignored = false } = {}) {
 
 export const MIXED_NOTICE = 'Não registrei nenhuma movimentação: quando uma mensagem mistura perguntas e lançamentos, só as perguntas são respondidas. Para registrar, envie o lançamento em uma nova mensagem.';
 export const UNDO_NOTICE = 'Para desfazer a última movimentação desta conversa, digite “desfazer” ou use o botão ↶ Desfazer. A IA não apaga movimentações.';
-export const UNSUPPORTED_NOTICE = 'Isso eu não consigo fazer pelo Finance Chat. Posso registrar despesas e receitas (inclusive várias de uma vez ou divididas entre categorias), consultar o saldo das categorias, simular compras e buscar transações desta conta.';
-export const NOT_UNDERSTOOD = 'Não entendi a mensagem. Você pode registrar despesas e receitas, consultar o saldo de uma categoria, simular uma compra ou buscar transações desta conta.';
+export const UNSUPPORTED_NOTICE = 'Isso eu não consigo fazer pelo Finance Chat. Posso registrar despesas e receitas (inclusive várias de uma vez ou divididas entre categorias), consultar o saldo das categorias, simular compras, buscar transações desta conta e mostrar o resumo do mês.';
+export const NOT_UNDERSTOOD = 'Não entendi a mensagem. Você pode registrar despesas e receitas, consultar o saldo de uma categoria, simular uma compra, buscar transações desta conta ou pedir o resumo do mês.';
 export const TOO_MANY_QUERIES_NOTICE = 'Respondi às três primeiras perguntas. Envie as outras em uma nova mensagem.';
 export const DRAFT_DISCARDED = 'Pronto, descartei as movimentações incompletas. Nada foi registrado.';
 
@@ -161,10 +172,11 @@ export function periodText({ from, to }) {
   return `de ${dateText(from)} a ${dateText(to)}`;
 }
 
-/** " com McDonald's em Alimentação entre R$ 10,00 e R$ 50,00" */
-export function searchFiltersText({ type, payees, category, minAmount, maxAmount }) {
+/** " com McDonald's com “lanche” nas notas em Alimentação entre R$ 10,00 e R$ 50,00" */
+export function searchFiltersText({ type, payees, notes, category, minAmount, maxAmount }) {
   let filters = '';
   if (payees?.length) filters += ` ${type === 'income' ? 'de' : 'com'} ${payees.join(', ')}`;
+  if (notes) filters += ` com “${notes}” nas notas`;
   if (category) filters += ` em ${category}`;
   if (minAmount !== null && maxAmount !== null) filters += ` entre ${moneyText(minAmount)} e ${moneyText(maxAmount)}`;
   else if (minAmount !== null) filters += ` a partir de ${moneyText(minAmount)}`;
@@ -182,6 +194,23 @@ function transactionText(transaction, view) {
 
 /** The answer to a search, from the numbers the backend computed. */
 export function searchText(view) {
+  // No payee had that name, so the term was looked up in the notes instead.
+  const lead = view.payeeAsNotes ? `Não encontrei um beneficiário chamado “${view.notes}”, então procurei nas notas das transações. ` : '';
+  return lead + searchAnswer(view);
+}
+
+/** "agosto de 2026: R$ 120,00 (3 despesas)" lines after the total of the whole period. */
+function monthlyAnswer(view) {
+  const [one, many] = TYPE_WORDS[view.type] || TYPE_WORDS.any;
+  const head = view.count === 0 ? searchAnswer({ ...view, result: 'sum' }) : `${searchAnswer({ ...view, result: 'sum' })} Por mês:`;
+  const value = (total) => (view.type === 'any' ? centsText(total) : centsText(Math.abs(total)));
+  const lines = view.months.map((item) => `• ${monthName(item.month)}: ${value(item.total)}${item.count ? ` (${item.count} ${item.count === 1 ? one : many})` : ''}`);
+  const note = view.truncated ? `\n\nMostrei só os últimos ${view.months.length} meses.` : '';
+  return `${head}\n\n${lines.join('\n')}${note}`;
+}
+
+function searchAnswer(view) {
+  if (view.result === 'by_month' && view.months) return monthlyAnswer(view);
   const [one, many] = TYPE_WORDS[view.type] || TYPE_WORDS.any;
   const filters = searchFiltersText(view);
   const period = periodText(view);
@@ -210,4 +239,52 @@ export function searchText(view) {
   const shown = view.transactions.length;
   const more = view.count > shown ? ` Estas são as ${shown} ${ORDER_WORDS[view.order] || ORDER_WORDS.newest}:` : '';
   return `Encontrei ${counted}${filters} ${period}.${more}`;
+}
+
+/* ---------- Month summary ---------- */
+
+const MONTH_NAMES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+/** "2026-11" → "novembro de 2026" */
+export function monthName(month) {
+  const [year, index] = month.split('-').map(Number);
+  return `${MONTH_NAMES[index - 1]} de ${year}`;
+}
+
+const count = (value, one, many) => `${value} ${value === 1 ? one : many}`;
+const signedCents = (cents) => `${cents < 0 ? '−' : '+'}${centsText(Math.abs(cents))}`;
+
+function topExpenseText(expense) {
+  const payee = expense.payee ? ` com ${expense.payee}` : '';
+  return `${centsText(Math.abs(expense.amount))}${payee} em ${dateText(expense.date)}`;
+}
+
+/** The summary card's text, from the numbers the backend computed (cents). */
+export function monthSummaryText(view) {
+  const lines = [`Resumo de ${monthName(view.month)} (${dateText(view.from)} a ${dateText(view.to)}).`, '', `Na conta ${view.account}:`];
+  if (!view.expenseCount && !view.incomeCount) {
+    lines.push('• Nenhuma despesa ou receita no período.');
+  } else {
+    lines.push(
+      `• Despesas: ${centsText(view.expenses)} (${count(view.expenseCount, 'lançamento', 'lançamentos')})`,
+      `• Receitas: ${centsText(view.incomes)} (${count(view.incomeCount, 'lançamento', 'lançamentos')})`,
+      `• Resultado: ${signedCents(view.net)}`,
+    );
+    if (view.topExpenses.length) lines.push(`• Maiores despesas: ${view.topExpenses.map(topExpenseText).join('; ')}`);
+  }
+  lines.push('');
+  if (!view.budget) {
+    lines.push('O orçamento não tem dados deste mês.');
+    return lines.join('\n');
+  }
+  const { budget } = view;
+  lines.push('No orçamento do mês (todas as contas):', `• Gasto: ${centsText(budget.spent)} de ${centsText(budget.budgeted)} orçados`);
+  if (budget.topCategories.length) lines.push(`• Onde mais gastou: ${budget.topCategories.map((category) => `${category.name} (${centsText(category.spent)})`).join(', ')}`);
+  if (budget.overspentCount) {
+    const more = budget.overspentCount > budget.overspent.length ? ` e mais ${budget.overspentCount - budget.overspent.length}` : '';
+    lines.push(`• Categorias estouradas: ${budget.overspent.map((category) => `${category.name} (faltam ${centsText(-category.balance)})`).join(', ')}${more}`);
+  } else {
+    lines.push('• Nenhuma categoria estourada.');
+  }
+  return lines.join('\n');
 }

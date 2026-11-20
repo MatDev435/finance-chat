@@ -60,8 +60,93 @@ function normalizeCategory(category) {
   return value.charAt(0).toLocaleUpperCase('pt-BR') + value.slice(1);
 }
 
+/*
+ * "Quanto gastei com alimentação?", "quanto paguei no mercado em outubro?",
+ * "quanto recebi de freela este ano?", "quanto gastei com alimentação nos
+ * últimos 3 meses por mês?". The answer is a search of the chat's account
+ * (sum, or one total per month). The term after the preposition may be a
+ * category or a payee: the search decides with the budget (exact category
+ * name first). Anything else after the verb is left to the AI.
+ */
+const SPENDING_HELP = 'Não entendi a pergunta. Use, por exemplo: “quanto gastei com alimentação em outubro?” ou “quanto gastei no mercado nos últimos 3 meses por mês?”.';
+const SPENDING_VERB = /^quanto\s+(?:eu\s+)?(gastei|paguei|comprei|recebi|ganhei)\b/i;
+const MONTH_NAMES = ['janeiro', 'fevereiro', 'mar[cç]o', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const MONTH_PATTERN = MONTH_NAMES.join('|');
+const NUMBER_WORDS = { um: 1, uma: 1, dois: 2, duas: 2, 'três': 3, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12 };
+const COUNT = String.raw`(\d{1,3}|${Object.keys(NUMBER_WORDS).join('|')})`;
+const BY_MONTH = /\s+(?:por\s+m[eê]s|(?:em\s+)?cada\s+m[eê]s|m[eê]s\s+a\s+m[eê]s|separad[oa]s?\s+por\s+m[eê]s)$/i;
+const PERIODS = [
+  [/\s+hoje$/i, () => ({ period: 'today' })],
+  [/\s+ontem$/i, () => ({ period: 'yesterday' })],
+  [/\s+(?:n?(?:esta|essa))\s+semana$/i, () => ({ period: 'this_week' })],
+  [/\s+(?:na\s+)?semana\s+passada$/i, () => ({ period: 'last_week' })],
+  [/\s+(?:no\s+)?m[eê]s\s+passado$/i, () => ({ period: 'last_month' })],
+  [/\s+(?:n?(?:este|esse)|no)\s+m[eê]s(?:\s+atual)?$/i, () => ({ period: 'this_month' })],
+  [/\s+(?:no\s+)?ano\s+passado$/i, () => ({ period: 'last_year' })],
+  [/\s+n?(?:este|esse)\s+ano$/i, () => ({ period: 'this_year' })],
+  [new RegExp(String.raw`\s+(?:n?os\s+)?[uú]ltimos\s+${COUNT}\s+(dias|meses)$`, 'i'), (match) => {
+    const count = NUMBER_WORDS[match[1].toLocaleLowerCase('pt-BR')] ?? Number(match[1]);
+    if (!count || count > 120) fail('Informe um período de até 120 dias ou meses.');
+    return { period: /^d/i.test(match[2]) ? 'last_days' : 'last_months', periodCount: count };
+  }],
+  [new RegExp(String.raw`\s+(?:em|no\s+m[eê]s\s+de|de)\s+(${MONTH_PATTERN})(?:\s+(?:de\s+)?(\d{4}))?$`, 'i'), (match) => ({
+    period: 'month',
+    month: MONTH_NAMES.findIndex((name) => new RegExp(`^${name}$`, 'i').test(match[1])) + 1,
+    year: match[2] ? Number(match[2]) : null,
+  })],
+  [/\s+(?:em|no\s+ano\s+de)\s+(\d{4})$/i, (match) => ({ period: 'year', year: Number(match[1]) })],
+];
+// A term that still carries a date, number or another question goes to the AI instead of being guessed.
+const TERM_REJECT = new RegExp(String.raw`\d|\b(?:${MONTH_PATTERN}|hoje|ontem|semana|m[eê]s|meses|ano|dias?|[uú]ltim[oa]s?|quanto|e\s+(?:no|na|em|com))\b`, 'i');
+
+function parseSpendingQuestion(text) {
+  const verb = text.match(SPENDING_VERB);
+  if (!verb) return null;
+  let rest = text.replace(/[?.!]+$/, '').trim();
+  let byMonth = false;
+  let period = null;
+  for (let pass = 0; pass < 2; pass += 1) {
+    if (!byMonth && BY_MONTH.test(rest)) {
+      byMonth = true;
+      rest = rest.replace(BY_MONTH, '');
+    }
+    if (!period) {
+      for (const [pattern, build] of PERIODS) {
+        const match = rest.match(pattern);
+        if (match) {
+          period = build(match);
+          rest = rest.slice(0, match.index);
+          break;
+        }
+      }
+    }
+  }
+  let after = rest.slice(verb[0].length).trim();
+  const leadingByMonth = after.match(/^(?:por\s+m[eê]s|(?:em\s+)?cada\s+m[eê]s|m[eê]s\s+a\s+m[eê]s)(?:\s+|$)/i);
+  if (leadingByMonth) {
+    byMonth = true;
+    after = after.slice(leadingByMonth[0].length);
+  }
+  let term = null;
+  if (after) {
+    const target = after.match(/^(?:com|em|no|na|nos|nas|de|do|da|dos|das|pro|pra|pela|pelo|para(?:\s+[oa]s?)?)\s+(?:(?:o|a|os|as)\s+)?(.+)$/i);
+    if (!target || TERM_REJECT.test(target[1])) fail(SPENDING_HELP);
+    term = /^(?:total|tudo|geral)$/i.test(target[1]) ? null : target[1].trim();
+  }
+  const type = ['recebi', 'ganhei'].includes(verb[1].toLocaleLowerCase('pt-BR')) ? 'income' : 'expense';
+  return {
+    kind: 'search',
+    search: {
+      followUp: false, term, payee: null, notes: null, category: null, type,
+      period: period?.period ?? (byMonth ? null : 'all'), periodCount: period?.periodCount ?? null,
+      month: period?.month ?? null, year: period?.year ?? null, from: null, to: null,
+      minAmount: null, maxAmount: null, result: byMonth ? 'by_month' : 'sum', order: null, limit: null,
+    },
+  };
+}
+
 function parseAvailableCategoryQuestion(text) {
-  if (!/^quanto\b/i.test(text)) return null;
+  if (!/^quanto\b/i.test(text) || SPENDING_VERB.test(text)) return null;
   const match = text.match(/^quanto\b.*?\b(?:categoria|em|com)\s+(.+?)(?:\s+(?:esse|este)\s+m[eê]s)?[?!.]*$/i);
   if (!match) return null;
   return { kind: 'category-available', category: normalizeCategory(match[1]) };
@@ -177,13 +262,31 @@ export function parseCommand(input) {
   return command;
 }
 
+/*
+ * Month summary in fixed phrases (the AI handles free variations such as
+ * "resumo de outubro"): "resumo", "resumo do mês", "me mostra o resumo do mês",
+ * "como estou esse mês?", "como estão minhas finanças?", "resumo do mês passado",
+ * "como foi o mês passado?".
+ */
+const SUMMARY_ASK = String.raw`(?:(?:me\s+)?(?:mostra|mostre|d[aá]|manda|quero|faz|fa[cç]a)\s+(?:(?:um|o)\s+)?)?`;
+const SUMMARY_THIS = new RegExp(String.raw`^(?:${SUMMARY_ASK}resumo(?:\s+(?:d[oe]|deste|desse)\s+m[eê]s(?:\s+atual)?)?|como\s+(?:eu\s+)?(?:estou|t[oô]|est[aã]o\s+(?:as\s+)?(?:minhas\s+)?finan[cç]as|(?:est|t)[aá]\s+o\s+m[eê]s)(?:\s+(?:esse|este|neste|nesse)\s+m[eê]s)?)[?.!]*$`, 'i');
+const SUMMARY_LAST = new RegExp(String.raw`^(?:${SUMMARY_ASK}resumo\s+do\s+m[eê]s\s+passado|como\s+foi\s+o\s+m[eê]s\s+passado)[?.!]*$`, 'i');
+
+function parseSummaryRequest(text) {
+  if (SUMMARY_THIS.test(text)) return { kind: 'summary', period: 'this_month' };
+  if (SUMMARY_LAST.test(text)) return { kind: 'summary', period: 'last_month' };
+  return null;
+}
+
 const UNDO_COMMAND = /^(?:desfazer|desfaz|desfaça|desfaca)(?:\s+(?:o\s+)?(?:último|ultimo)(?:\s+(?:lançamento|lancamento|registro|movimentação|movimentacao))?)?[.!]*$/i;
 
 export function parseMessage(input) {
   const text = normalizeText(input);
   if (!text) fail('Digite uma mensagem financeira.');
   if (UNDO_COMMAND.test(text)) return { kind: 'undo' };
-  return parseCanSpendQuestion(text)
+  return parseSummaryRequest(text)
+    || parseSpendingQuestion(text)
+    || parseCanSpendQuestion(text)
     || parseAvailableCategoryQuestion(text)
     || { kind: 'transaction', command: parseCommand(text) };
 }

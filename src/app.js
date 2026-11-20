@@ -7,6 +7,7 @@ import {
 } from './http.js';
 import { createRateLimiter } from './rate-limit.js';
 import { createSearch } from './search.js';
+import { createSummary } from './summary.js';
 import { currentLocalDate } from './transaction-mapping.js';
 import { createUndoStore } from './undo.js';
 import { ACCOUNT_ID_PATTERN, inputError, resolveConnectionInput } from './user-store.js';
@@ -95,7 +96,7 @@ function positiveInt(value, max, field) {
 
 export function createApp({
   config, auth, store, aiStore, openai, actual, pending, undo = createUndoStore(), conversations = createConversationStore(),
-  search, publicDir, log = console,
+  search, summary, publicDir, log = console,
 }) {
   const limiters = {
     loginIp: createRateLimiter({ limit: 20, windowMs: 15 * MINUTE }),
@@ -180,6 +181,7 @@ export function createApp({
     aiStore,
     interpreter,
     search: search ?? createSearch({ actual, conversations }),
+    summary: summary ?? createSummary({ actual }),
     requireConnection,
     aiLimiter: limiters.aiChat,
     isKnownError: (code) => Boolean(ERROR_STATUS[code]),

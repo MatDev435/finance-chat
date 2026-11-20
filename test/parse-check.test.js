@@ -63,3 +63,9 @@ test('split parts must add up exactly to the total', () => {
   assert.doesNotThrow(() => checkSplitTotal([{ amount: 150 }, { amount: 150 }], 300));
   assert.throws(() => checkSplitTotal([{ amount: 150 }, { amount: 149.99 }], 300), { code: 'INVALID_COMMAND', message: /299,99.*300,00/ });
 });
+
+test('parsed spending searches are complete unless the term looks like another filter or operation', async () => {
+  const { parseMessage } = await import('../src/parser.js');
+  assert.deepEqual(isCompleteParse(parseMessage('quanto gastei com alimentação em outubro')), { complete: true });
+  assert.deepEqual(isCompleteParse({ kind: 'search', search: { term: 'mercado e 30 na farmácia' } }), { complete: false, reason: 'search-term' });
+});

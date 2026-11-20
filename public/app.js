@@ -4,6 +4,7 @@ import { browserStorage, createHistory } from './js/history.js';
 import { entrySummary, initials, reconcileSelection, resolveInitialAccount, sidebarMotion, viewFor } from './js/navigation.js';
 import { createSettings } from './js/settings.js';
 import { createSetup } from './js/setup.js';
+import { createVoiceInput } from './js/voice.js';
 
 const $ = (selector) => document.querySelector(selector);
 const app = $('#app');
@@ -457,6 +458,7 @@ function renderChat() {
 
 function selectAccount(accountId) {
   if (state.selectedId === accountId && !state.settingsOpen) return;
+  voice.stop(); // dictation never continues into another chat
   const wasInList = !state.selectedId && !state.settingsOpen;
   state.selectedId = accountId;
   state.settingsOpen = false;
@@ -476,6 +478,7 @@ function goBack() {
 }
 
 function stepBack() {
+  voice.stop();
   const leftAccountId = state.selectedId;
   if (state.settingsOpen) state.settingsOpen = false;
   else if (mobileQuery.matches) state.selectedId = null;
@@ -517,7 +520,7 @@ function liveActionsFor(accountId, entry) {
   if ((item.type === 'preview' || item.type === 'batch') && entry.kind === item.type && entry.status === 'pending') return previewActions(accountId, entry.id);
   if (item.type === 'clarify' && entry.kind === 'clarify' && entry.status === 'pending') return clarifyActions(accountId, entry.id, item);
   if (item.type === 'suggestions') return { suggestions: item.suggestions, onPick: (category) => pickSuggestion(accountId, entry.id, category) };
-  if (item.type === 'undo') return { onUndo: () => undoLive(accountId, entry.id) };
+  if (item.type === 'undo') return { onUndo: () => undoLive(accountId, entry.id), ...(item.batch ? { undoLabel: 'Desfazer o lote inteiro' } : {}) };
   return undefined;
 }
 
@@ -619,7 +622,12 @@ function renderResponse(accountId, data) {
     state.live.set(entryId, { type: 'clarify', accountId, draftId: data.draftId, missing: data.missing, categories: data.categories });
     addEntry(accountId, { ...base, id: entryId, kind: 'clarify', text: data.message, status: 'pending', data: { items: data.items, missing: data.missing } });
   } else if (data.kind === 'search') {
-    addEntry(accountId, { ...base, kind: 'search', text: data.message, data: data.search });
+    // Month by month: the card lists the months, so the bubble keeps only the total sentence.
+    const text = data.search?.result === 'by_month' ? String(data.message).split('\n')[0].replace(/ Por mês:$/, '') : data.message;
+    addEntry(accountId, { ...base, kind: 'search', text, data: data.search });
+  } else if (data.kind === 'summary') {
+    // The card shows every number; the bubble keeps only the heading line of the server's text.
+    addEntry(accountId, { ...base, kind: 'summary', text: String(data.message).split('\n')[0], data: data.summary });
   } else if (data.kind === 'answers') {
     for (const answer of data.answers) renderResponse(accountId, { ...answer, source: data.source });
   } else {
@@ -705,8 +713,17 @@ async function discardDraft(accountId, entryId) {
   }
 }
 
+/** Dictation fills the field only; the message is sent with the usual button, after review. */
+const voice = createVoiceInput({
+  button: $('#voice-button'),
+  input: messageInput,
+  status: $('#voice-status'),
+  announce: (text) => { $('#chat-announcer').replaceChildren(Object.assign(document.createElement('span'), { textContent: text })); },
+});
+
 $('#command-form').addEventListener('submit', (event) => {
   event.preventDefault();
+  voice.stop();
   const accountId = state.selectedId;
   const text = messageInput.value.trim();
   if (!accountId || !text || state.busy.has(accountId)) return;
@@ -750,20 +767,15 @@ async function confirmPreview(accountId, entryId, ui) {
   setBusy(accountId, true);
   try {
     const data = await api('POST', '/api/chat/confirm', { pendingId: item.pendingId });
-    if (data.kind === 'batch') {
-      // A batch reports each item; an interrupted one is a warning, never something to resend blindly.
-      settlePreview(accountId, entryId, ui, data.complete ? 'confirmed' : 'partial');
-      addEntry(accountId, { role: 'assistant', kind: data.complete && data.synced ? 'text' : 'warning', text: data.message });
-      updateAccountName(data.account);
-      return;
-    }
-    settlePreview(accountId, entryId, ui, 'confirmed');
-    const success = { role: 'assistant', kind: data.synced ? 'text' : 'warning', text: data.message };
+    // A batch reports each item; an interrupted one is a warning, never something to resend blindly.
+    const complete = data.kind !== 'batch' || data.complete;
+    settlePreview(accountId, entryId, ui, complete ? 'confirmed' : 'partial');
+    const success = { role: 'assistant', kind: complete && data.synced ? 'text' : 'warning', text: data.message };
     if (data.undoId) {
-      // Only the last confirmed transaction of a chat can be undone, for a few minutes.
+      // Only the last confirmation of a chat (one transaction or a whole batch) can be undone, for a few minutes.
       retireLiveActions(accountId, ['undo']);
       success.id = newEntryId();
-      state.live.set(success.id, { type: 'undo', accountId, undoId: data.undoId, previewEntryId: entryId });
+      state.live.set(success.id, { type: 'undo', accountId, undoId: data.undoId, previewEntryId: entryId, batch: data.kind === 'batch' });
       setTimeout(() => removeLive(success.id), data.undoTtlMs ?? 10 * 60 * 1000);
     }
     addEntry(accountId, success);

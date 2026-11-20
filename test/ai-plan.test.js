@@ -110,3 +110,25 @@ test('strips control characters and caps text sizes', () => {
   assert.ok(item.description.length <= 120);
   assert.equal(item.notes, 'Linha 1 linha 2');
 });
+
+test('normalizes the month summary and the notes filter of a search', () => {
+  const normalized = normalizePlan(plan({ operations: [
+    op.summary({ period: 'month', month: 10, year: null }),
+    op.summary({ period: 'last_month' }),
+    op.search({ notes: '  Monster\n', type: 'expense', period: 'all', result: 'sum' }),
+  ] }));
+  assert.deepEqual(normalized.operations[0], { kind: 'summary', summary: { period: 'month', month: 10, year: null } });
+  assert.deepEqual(normalized.operations[1], { kind: 'summary', summary: { period: 'last_month', month: null, year: null } });
+  assert.equal(normalized.operations[2].search.notes, 'Monster');
+  for (const summary of [null, { period: 'next_month', month: null, year: null }, { period: 'month', month: 13, year: null }]) {
+    assert.throws(() => normalizePlan(plan({ operations: [{ ...op.summary(), summary }] })), { code: 'AI_INVALID_PLAN' });
+  }
+  assert.match(DEVELOPER_PROMPT, /month_summary/);
+  assert.match(DEVELOPER_PROMPT, /notes: an item or subject to find in the transaction notes/);
+});
+
+test('month-by-month is a search result of the contract', () => {
+  const normalized = normalizePlan(plan({ operations: [op.search({ category: 'alimentação', type: 'expense', period: 'last_months', periodCount: 6, result: 'by_month' })] }));
+  assert.equal(normalized.operations[0].search.result, 'by_month');
+  assert.match(DEVELOPER_PROMPT, /by_month \(the total of each month separately/);
+});

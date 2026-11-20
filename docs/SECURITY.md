@@ -48,13 +48,14 @@ O endereço do servidor Actual é informado pelo usuário, então o Finance Chat
 - Conta e categoria são revalidadas logo antes da gravação. Nunca há fallback para outra conta.
 - A interface só mostra "registrada" depois da confirmação do servidor.
 - Falhas são classificadas: "nada foi registrado", "gravada mas não sincronizada" e "resultado incerto, verifique no Actual".
-- Desfazer apaga somente a última transação criada pelo próprio usuário naquela conversa, por até 10 minutos, e somente se ela continuar com a mesma conta, data e valor.
+- Desfazer apaga somente a última confirmação do próprio usuário naquela conversa (uma transação ou um lote completo), por até 10 minutos, e somente se todas as transações continuarem com a mesma conta, data e valor; num lote, qualquer diferença cancela tudo antes da primeira exclusão.
 
 ## App instalável (service worker)
 
 - O service worker só armazena os arquivos estáticos da interface. Requisições para `/api/*` e `/health` passam direto para o servidor e nunca são guardadas, então contas, transações e tokens não ficam no cache.
 - Estratégia "rede primeiro": online, sempre usa a versão mais nova dos arquivos; o cache é só fallback offline.
 - Sem push, sincronização em segundo plano, analytics ou chamadas a terceiros.
+- `Permissions-Policy: microphone=(self)`: o microfone só pode ser pedido pelo próprio Finance Chat (ditado por voz), nunca por frames ou outras origens. O ditado usa o reconhecimento de voz do navegador; o áudio vai para o serviço do navegador (Google no Chrome, Apple no Safari), não para o servidor do Finance Chat, e o texto reconhecido só preenche o campo, sem envio automático.
 
 ## Dados locais
 
@@ -68,7 +69,7 @@ O endereço do servidor Actual é informado pelo usuário, então o Finance Chat
 - Ela só é decifrada no servidor, logo antes de uma chamada, e só vai no cabeçalho `Authorization` para `https://api.openai.com/v1`. Nunca é devolvida pela API (`/api/me` e `/api/ai` informam apenas se existe uma chave), nunca vai para URLs, logs ou mensagens de erro, e não é guardada no navegador.
 - As mensagens de erro da OpenAI não são repassadas nem registradas (algumas citam parte da chave). O log guarda só o código, o status e o ID da requisição.
 - O que é enviado: instruções fixas, schema, data, nomes das categorias visíveis, o rascunho pendente (sem IDs), os filtros da última busca e a mensagem. Nunca: contas, saldos, transações, histórico do chat, IDs ou credenciais. As chamadas usam `store: false`.
-- O plano devolvido pelo modelo é dado não confiável: validado campo a campo (`src/ai/plan.js`); ele não pode gravar sem prévia e confirmação, apagar, desfazer, escolher conta, escolher categoria ou montar consultas. A busca é sempre limitada à conta da conversa.
+- O plano devolvido pelo modelo é dado não confiável: validado campo a campo (`src/ai/plan.js`); ele não pode gravar sem prévia e confirmação, apagar, desfazer, escolher conta, escolher categoria ou montar consultas. A busca é sempre limitada à conta da conversa. O texto procurado nas notas é escapado (`%`, `?`, `\\`) e usado só como "contém". O resumo do mês envia ao modelo apenas a mensagem; os valores são calculados no servidor.
 - Limites por usuário: teste de chave (10 a cada 5 minutos) e chamadas à IA pelo chat (40 a cada 10 minutos).
 - O consumo (`ai_usage`) guarda contadores de tokens e custo, nunca mensagens ou respostas, e cada usuário só vê o próprio.
 - Os testes automatizados nunca acessam a OpenAI: o transporte HTTP é substituído por um falso que falha em qualquer chamada inesperada.
