@@ -86,6 +86,19 @@ test('an unknown category in an otherwise parsed message is read by the AI inste
   await app.close();
 });
 
+test('notes inferred by the AI (what was bought) reach the preview and the written transaction', async () => {
+  const { app, send, ana, written } = await aiApp();
+  app.openai.replyPlan(plan({ operations: [op.tx({ amount: '10.00', payee: 'mercado', category: 'alimentação', notes: 'Monster' })] }));
+  const response = await send('Gastei 10 reais no mercado com um monster na alimentação');
+  assert.equal(response.body.kind, 'transaction');
+  assert.equal(response.body.preview.command.notes, 'Monster');
+  assert.match(app.openai.requests[0].body.input[0].content[0].text, /notes "Monster"/);
+  assert.equal((await ana.post('/api/chat/confirm', { pendingId: response.body.pendingId })).status, 200);
+  assert.equal(written().at(-1).notes, 'Monster');
+  assert.equal(written().at(-1).payee_name, 'mercado');
+  await app.close();
+});
+
 test('expense with an explicit category: one preview, confirmed once, then undoable', async () => {
   const { app, send, ana, written } = await aiApp();
   app.openai.replyPlan(plan({ operations: [op.tx({ amount: '80.00', payee: 'Posto Shell', category: 'transporte', date: { daysAgo: 1, day: null, month: null, year: null } })] }));
