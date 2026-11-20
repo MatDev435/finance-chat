@@ -27,7 +27,8 @@ O mesmo processo serve o frontend estático (`public/`) e a API (`/api/*`) na me
 | `parse-check.js` | `isCompleteParse`: recusa resultados do parser que podem ter engolido outro lançamento ou pergunta (só no modo IA). |
 | `drafts.js` | Lançamentos interpretados pela IA antes da prévia: resolução de categorias, campos que faltam, atualizações (só de campos que faltam), regras de divisão. |
 | `conversation.js` | Contextos curtos por usuário e conta: rascunho pendente e filtros da última busca (15 minutos, em memória). |
-| `search.js`, `periods.js` | Busca de transações pela AQL do Actual, restrita à conta da conversa; períodos convertidos em datas. |
+| `search.js`, `periods.js` | Busca de transações pela AQL do Actual (beneficiário, notas, categoria, valores), restrita à conta da conversa; períodos convertidos em datas. |
+| `summary.js` | Resumo do mês: totais e maiores despesas da conta (AQL) e o orçamento do mês (`getBudgetMonth`), só leitura. |
 | `ai/models.js`, `ai/pricing.js` | Modelos oferecidos (GPT-6 com Structured Outputs) e tabela de preços versionada. |
 | `ai/store.js` | Configuração de IA por usuário (chave cifrada) e registro de consumo. |
 | `ai/openai-client.js` | Cliente HTTP da Responses API e da listagem de modelos, com erros mapeados e leitura do uso de tokens. |
@@ -40,13 +41,13 @@ O mesmo processo serve o frontend estático (`public/`) e a API (`/api/*`) na me
 | `secrets.js` | AES-256-GCM com chave derivada da `APP_SECRET` (HKDF) e dados vinculados ao usuário e ao campo. |
 | `user-store.js` | Conexão de cada usuário com o Actual (cifrada) e preferência de conta padrão. Valida o formulário de conexão. |
 | `actual.js` | Gerenciador da API do Actual: fila exclusiva, troca de contexto por usuário, cache por usuário, mensagens de erro claras. |
-| `budget-operations.js` | Operações sobre o orçamento aberto: listar contas, preparar a prévia (simples ou de itens da IA), gravar a transação confirmada ou o lote. |
+| `budget-operations.js` | Operações sobre o orçamento aberto: listar contas, preparar a prévia (simples ou de itens da IA), gravar a transação confirmada ou o lote, desfazer uma transação ou um lote inteiro. |
 | `accounts.js` | Regras de conta: só contas abertas e dentro do orçamento; seleção estritamente por ID. |
 | `parser.js` | Parser determinístico de comandos e perguntas em português. |
 | `validation.js` | Valida conta (por ID) e categoria (por nome) contra o orçamento. |
 | `transaction-mapping.js` | Converte o comando para o formato do Actual (centavos, `payee_name`, `notes`). |
 | `budget-availability.js`, `category-queries.js` | Consultas de saldo por categoria. |
-| `undo.js` | Última transação confirmada de cada conversa, desfazível por 10 minutos, de uso único (em memória). |
+| `undo.js` | Última confirmação de cada conversa (uma transação ou um lote completo), desfazível por 10 minutos, de uso único (em memória). |
 | `pending.js` | Prévias (simples ou lotes) aguardando confirmação: em memória, uma por usuário e conta, com ID de uso único e expiração. |
 | `backup.js` | Backup online do SQLite com rotação. |
 | `fetch-timeout.js` | Prazo de 60 s para todo `fetch`. |
