@@ -215,6 +215,7 @@ export function createChat({ actual, pending, undo, conversations, aiStore, inte
 
   async function runParsed({ userId, accountId, intent, categoryId, connection }) {
     if (intent.kind === 'summary') return summary.answer({ accountId, connection, request: { period: intent.period, month: null, year: null } });
+    if (intent.kind === 'search') return search.answer({ userId, accountId, connection, request: intent.search });
     if (intent.kind === 'category-available' || intent.kind === 'category-can-spend') {
       return categoryAnswer({ connection, kind: intent.kind, category: intent.category, amount: intent.amount, categoryId });
     }
@@ -385,6 +386,7 @@ export function createChat({ actual, pending, undo, conversations, aiStore, inte
       const connection = requireConnection(userId);
       if (!aiOn || categoryId) return withSource(await runParsed({ userId, accountId, intent, categoryId, connection }), 'parser');
       if (isCompleteParse(intent).complete) {
+        if (intent.kind === 'search') intent.search.strictTerm = true;
         try {
           return withSource(await runParsed({ userId, accountId, intent, connection }), 'parser');
         } catch (error) {

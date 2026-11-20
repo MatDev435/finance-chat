@@ -28,7 +28,7 @@
 import { requireChatAccount } from './accounts.js';
 import { foldName, levenshtein, matchCategory, notFoundMessage } from './category-match.js';
 import { searchText } from './chat-text.js';
-import { resolvePeriod } from './periods.js';
+import { MAX_MONTHS, monthSpans, resolvePeriod, startOfLastMonths } from './periods.js';
 import { amountToCents } from './parser.js';
 import { currentLocalDate } from './transaction-mapping.js';
 
@@ -78,7 +78,9 @@ export function notesPattern(term) {
 export function mergeRequest(request, previous) {
   if (!request.followUp || !previous) return { ...request, followUp: false };
   const merged = { ...previous, followUp: false };
-  for (const key of FILTER_KEYS) if (request[key] !== null) merged[key] = request[key];
+  // The parser's undecided term (category or payee) gives way to a new payee or category.
+  if (request.payee != null || request.category != null || request.notes != null) merged.term = null;
+  for (const key of FILTER_KEYS) if (request[key] !== null && request[key] !== undefined) merged[key] = request[key];
   if (request.period !== null) for (const key of PERIOD_KEYS) merged[key] = request[key];
   if (request.result !== null) {
     merged.result = request.result;
@@ -94,7 +96,7 @@ export function mergeRequest(request, previous) {
 /** The last search as the model sees it: only the filters that are set. */
 export function searchContext(request) {
   const context = {};
-  for (const key of [...FILTER_KEYS, ...PERIOD_KEYS, 'result']) {
+  for (const key of ['term', ...FILTER_KEYS, ...PERIOD_KEYS, 'result']) {
     const value = request[key];
     if (value === null || value === undefined) continue;
     context[key] = typeof value === 'number' && (key === 'minAmount' || key === 'maxAmount') ? value.toFixed(2) : value;
@@ -161,6 +163,16 @@ export async function executeSearch(api, spec) {
   const scalar = async (expression) => Number((await api.aqlQuery(base().calculate(expression))).data) || 0;
   const count = await scalar({ $count: '$id' });
   const total = count ? await scalar({ $sum: '$amount' }) : 0;
+  if (spec.result === 'by_month') {
+    const months = [];
+    for (const span of monthSpans(spec.from, spec.to)) {
+      const monthly = (expression) => api.aqlQuery(api.q('transactions').filter(buildFilter({ ...spec, from: span.from, to: span.to }))
+        .options({ splits: spec.categoryId ? 'inline' : 'none' }).calculate(expression)).then((result) => Number(result.data) || 0);
+      const monthCount = count ? await monthly({ $count: '$id' }) : 0;
+      months.push({ month: span.month, count: monthCount, total: monthCount ? await monthly({ $sum: '$amount' }) : 0 });
+    }
+    return { count, total, rows: [], months };
+  }
   let rows = [];
   if (count && spec.result !== 'sum' && spec.result !== 'count') {
     const order = spec.result === 'max' ? ORDERS.largest : spec.result === 'min' ? ORDERS.smallest : ORDERS[spec.order] || ORDERS.newest;
@@ -182,8 +194,19 @@ export function createSearch({ actual, conversations, today = currentLocalDate }
       }
       const merged = mergeRequest(request, previous);
       let period;
+      let truncated = false;
       try {
         period = resolvePeriod(merged, today());
+        if (merged.result === 'by_month') {
+          // Month by month without a period: this year so far. Never more than MAX_MONTHS months.
+          if (!period.from) period = resolvePeriod({ period: 'this_year' }, today());
+          // "Últimos 3 meses, por mês": the last 3 calendar months (this one included), not a partial first month.
+          if (merged.period === 'last_months') period = { from: startOfLastMonths(period.to, merged.periodCount ?? 1), to: period.to };
+          if (monthSpans(period.from, period.to).length > MAX_MONTHS) {
+            period = { from: startOfLastMonths(period.to, MAX_MONTHS), to: period.to };
+            truncated = true;
+          }
+        }
       } catch (error) {
         if (error.code === 'INVALID_COMMAND') return textAnswer(error.message);
         throw error;
@@ -191,36 +214,46 @@ export function createSearch({ actual, conversations, today = currentLocalDate }
       if (merged.minAmount !== null && merged.maxAmount !== null && merged.minAmount > merged.maxAmount) {
         return textAnswer('O valor mínimo da busca é maior que o máximo.');
       }
-      conversations.putQuery(userId, accountId, merged);
-
       const type = merged.type || 'any';
       const result = merged.result || 'list';
       const outcome = await actual.run(connection, async (api) => {
         await api.sync();
         const [accounts, categories, payees] = await Promise.all([api.getAccounts(), api.getCategories(), api.getPayees()]);
         const account = requireChatAccount(accounts, accountId);
+        // The parser cannot tell "com alimentação" (a category) from "no mercado" (a payee):
+        // an exact category name (ignoring case and accents) wins, anything else is a payee.
+        let categoryTerm = merged.category;
+        let payeeTerm = merged.payee;
+        if (merged.term && !categoryTerm && !payeeTerm) {
+          if (matchCategory(categories, merged.term).category) categoryTerm = merged.term;
+          else if (request.strictTerm && !matchPayees(payees, merged.term).length) {
+            // AI mode: a term that is neither a category nor a payee may be a partial parse
+            // ("no mc em todas as contas"); the dispatcher sends the whole message to the AI.
+            throw Object.assign(new Error('Não encontrei uma categoria ou beneficiário com esse nome.'), { code: 'VALIDATION_ERROR', categoryMiss: true });
+          } else payeeTerm = merged.term;
+        }
         let category = null;
-        if (merged.category) {
-          const match = matchCategory(categories, merged.category);
-          if (!match.category) return { message: notFoundMessage(merged.category, match.suggestions) };
+        if (categoryTerm) {
+          const match = matchCategory(categories, categoryTerm);
+          if (!match.category) return { message: notFoundMessage(categoryTerm, match.suggestions) };
           category = match.category;
         }
         let matched = null;
         let notesTerm = merged.notes;
         let payeeAsNotes = false;
-        if (merged.payee) {
-          matched = matchPayees(payees, merged.payee);
+        if (payeeTerm) {
+          matched = matchPayees(payees, payeeTerm);
           if (!matched.length && !notesTerm) {
             // "quanto gastei com Monster": no such payee, so it may be what was bought (the notes).
-            notesTerm = merged.payee;
+            notesTerm = payeeTerm;
             payeeAsNotes = true;
             matched = null;
           } else if (!matched.length) {
-            return { empty: true, account, category, payeeTerm: merged.payee };
+            return { empty: true, account, category, payeeTerm };
           }
         }
         if (matched && matched.length > MAX_PAYEES) {
-          return { message: `Encontrei muitos beneficiários parecidos com “${merged.payee}” (${matched.slice(0, 5).map((payee) => payee.name).join(', ')}…). Pode ser mais específico?` };
+          return { message: `Encontrei muitos beneficiários parecidos com “${payeeTerm}” (${matched.slice(0, 5).map((payee) => payee.name).join(', ')}…). Pode ser mais específico?` };
         }
         const pattern = notesTerm ? notesPattern(notesTerm) : null;
         const spec = {
@@ -260,6 +293,9 @@ export function createSearch({ actual, conversations, today = currentLocalDate }
         };
       });
 
+      // Kept for follow-ups only once the search ran (a term sent to the AI instead is not kept).
+      const { strictTerm, ...kept } = merged;
+      conversations.putQuery(userId, accountId, kept);
       if (outcome.message) return textAnswer(outcome.message);
       const view = {
         result,
@@ -269,7 +305,7 @@ export function createSearch({ actual, conversations, today = currentLocalDate }
         from: period.from,
         to: period.to,
         account: outcome.account.name,
-        payees: outcome.empty ? [merged.payee] : outcome.payees,
+        payees: outcome.empty ? [outcome.payeeTerm] : outcome.payees,
         notes: outcome.empty ? (merged.notes ?? null) : outcome.notes,
         payeeAsNotes: Boolean(outcome.payeeAsNotes),
         category: outcome.category?.name ?? null,
@@ -278,6 +314,10 @@ export function createSearch({ actual, conversations, today = currentLocalDate }
         count: outcome.empty ? 0 : outcome.data.count,
         total: outcome.empty ? 0 : outcome.data.total,
         transactions: outcome.empty ? [] : outcome.data.transactions,
+        ...(result === 'by_month' ? {
+          months: outcome.empty ? monthSpans(period.from, period.to).map(({ month }) => ({ month, count: 0, total: 0 })) : outcome.data.months,
+          truncated,
+        } : {}),
       };
       return { ok: true, kind: 'search', message: searchText(view), search: view };
     },

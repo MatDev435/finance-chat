@@ -162,3 +162,25 @@ test('recognizes a few fixed month-summary phrases (free variations go to the AI
   for (const text of ['resumo de outubro', 'resumos', 'como estou gastando?']) assert.throws(() => parseMessage(text), text);
   assert.equal(parseMessage('Gastei 10 no mercado categoria resumo').kind, 'transaction');
 });
+
+test('"quanto gastei com X [período] [por mês]" becomes a search of the chat account', () => {
+  const search = (text) => parseMessage(text).search;
+  const pick = ({ term, type, period, periodCount, month, year, result }) => ({ term, type, period, periodCount, month, year, result });
+  assert.deepEqual(pick(search('quanto gastei com alimentação')), { term: 'alimentação', type: 'expense', period: 'all', periodCount: null, month: null, year: null, result: 'sum' });
+  assert.deepEqual(pick(search('Quanto gastei com alimentação em outubro?')), { term: 'alimentação', type: 'expense', period: 'month', periodCount: null, month: 10, year: null, result: 'sum' });
+  assert.deepEqual(pick(search('quanto gastei com alimentação em março de 2025')), { term: 'alimentação', type: 'expense', period: 'month', periodCount: null, month: 3, year: 2025, result: 'sum' });
+  assert.deepEqual(pick(search('quanto gastei com alimentação nos últimos 3 meses por mês')), { term: 'alimentação', type: 'expense', period: 'last_months', periodCount: 3, month: null, year: null, result: 'by_month' });
+  assert.deepEqual(pick(search('quanto gastei por mês com alimentação')), { term: 'alimentação', type: 'expense', period: null, periodCount: null, month: null, year: null, result: 'by_month' });
+  assert.equal(search('quanto gastei com alimentação por mês nos últimos seis meses').periodCount, 6);
+  assert.deepEqual(pick(search('quanto recebi de freela este ano')), { term: 'freela', type: 'income', period: 'this_year', periodCount: null, month: null, year: null, result: 'sum' });
+  assert.equal(search("Quanto eu gastei no McDonald's mês passado?").term, "McDonald's");
+  assert.equal(search('quanto paguei no mercado esse mês').period, 'this_month');
+  assert.deepEqual([search('quanto gastei em outubro').term, search('quanto gastei no total esse mês').term], [null, null]);
+  assert.equal(search('quanto gastei com alimentação em 2025').year, 2025);
+  // Terms that still carry another date, filter or question are never guessed.
+  for (const text of ['quanto gastei hoje no uber', 'quanto gastei em março de 2025 com alimentação', 'quanto gastei com alimentação e no mercado']) {
+    assert.throws(() => parseMessage(text), /quanto gastei com alimentação em outubro/, text);
+  }
+  // "Quanto tenho em X?" is still the category balance.
+  assert.equal(parseMessage('quanto tenho em alimentação').kind, 'category-available');
+});

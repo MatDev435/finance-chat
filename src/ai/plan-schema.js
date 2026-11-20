@@ -12,7 +12,7 @@ export const SEARCH_PERIODS = Object.freeze([
   'all', 'today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month',
   'this_year', 'last_year', 'last_days', 'last_months', 'month', 'year', 'range',
 ]);
-export const SEARCH_RESULTS = Object.freeze(['list', 'sum', 'count', 'max', 'min']);
+export const SEARCH_RESULTS = Object.freeze(['list', 'sum', 'count', 'max', 'min', 'by_month']);
 export const SEARCH_ORDERS = Object.freeze(['newest', 'oldest', 'largest', 'smallest']);
 export const SUMMARY_PERIODS = Object.freeze(['this_month', 'last_month', 'month']);
 export const INTENTS = Object.freeze(['create_transaction', 'category_balance', 'simulate_spend', 'search_transactions', 'month_summary', 'undo', 'unsupported']);
@@ -109,7 +109,7 @@ operations (one entry per thing the user asks; max 10):
   - category: as written, or null. type: expense for spending verbs (gastei, comprei, paguei, comi), income for recebi/ganhei, any otherwise.
   - period: all (no period), today, yesterday, this_week, last_week, this_month, last_month, this_year, last_year, last_days or last_months (periodCount = N for "últimos N dias/meses"), month (month, plus year only if said), year (year), range (from/to as YYYY-MM-DD).
   - minAmount/maxAmount: decimal strings or null.
-  - result: list (show transactions), sum (total), count, max (largest), min (smallest). order: newest, oldest, largest or smallest. limit: 1 for "a última vez"/"a última", the number asked, else null.
+  - result: list (show transactions), sum (total), count, max (largest), min (smallest), by_month (the total of each month separately: "por mês", "em cada mês", "mês a mês", "separado por mês"; keep the period asked, or null for this year). order: newest, oldest, largest or smallest. limit: 1 for "a última vez"/"a última", the number asked, else null.
   - followUp: true only when the message refers to lastSearch ("e no total?", "e em outubro?"); then set only what changes and leave every other filter null.
 - month_summary: an overview of a whole month ("como estou esse mês?", "resumo do mês", "como foi o mês passado?", "resumo de outubro"). Fill "summary": period this_month, last_month or month (month, plus year only if said). A total of one payee, category or item is search_transactions, not a summary.
 - undo: the user wants to undo or delete the last recorded transaction.

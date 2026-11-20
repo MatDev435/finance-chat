@@ -126,3 +126,9 @@ test('normalizes the month summary and the notes filter of a search', () => {
   assert.match(DEVELOPER_PROMPT, /month_summary/);
   assert.match(DEVELOPER_PROMPT, /notes: an item or subject to find in the transaction notes/);
 });
+
+test('month-by-month is a search result of the contract', () => {
+  const normalized = normalizePlan(plan({ operations: [op.search({ category: 'alimentação', type: 'expense', period: 'last_months', periodCount: 6, result: 'by_month' })] }));
+  assert.equal(normalized.operations[0].search.result, 'by_month');
+  assert.match(DEVELOPER_PROMPT, /by_month \(the total of each month separately/);
+});

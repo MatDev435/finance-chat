@@ -199,7 +199,18 @@ export function searchText(view) {
   return lead + searchAnswer(view);
 }
 
+/** "agosto de 2026: R$ 120,00 (3 despesas)" lines after the total of the whole period. */
+function monthlyAnswer(view) {
+  const [one, many] = TYPE_WORDS[view.type] || TYPE_WORDS.any;
+  const head = view.count === 0 ? searchAnswer({ ...view, result: 'sum' }) : `${searchAnswer({ ...view, result: 'sum' })} Por mês:`;
+  const value = (total) => (view.type === 'any' ? centsText(total) : centsText(Math.abs(total)));
+  const lines = view.months.map((item) => `• ${monthName(item.month)}: ${value(item.total)}${item.count ? ` (${item.count} ${item.count === 1 ? one : many})` : ''}`);
+  const note = view.truncated ? `\n\nMostrei só os últimos ${view.months.length} meses.` : '';
+  return `${head}\n\n${lines.join('\n')}${note}`;
+}
+
 function searchAnswer(view) {
+  if (view.result === 'by_month' && view.months) return monthlyAnswer(view);
   const [one, many] = TYPE_WORDS[view.type] || TYPE_WORDS.any;
   const filters = searchFiltersText(view);
   const period = periodText(view);

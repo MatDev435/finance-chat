@@ -129,6 +129,29 @@ Ou use o botão **↶ Desfazer** que aparece na mensagem de sucesso. Regras:
 - Um lote de várias movimentações (modo IA) também pode ser desfeito inteiro, se todas tiverem sido registradas; se alguma tiver mudado no Actual, nada é desfeito.
 - O botão aparece só enquanto a página está aberta. O comando `desfazer` funciona também depois de recarregar, dentro do prazo.
 
+## Quanto gastei
+
+Perguntas de gasto ou recebimento numa categoria ou num beneficiário, sem IA:
+
+```text
+quanto gastei com alimentação?
+quanto gastei com alimentação em outubro?
+quanto gastei com alimentação em março de 2025?
+quanto paguei no mercado esse mês?
+quanto recebi da empresa este ano?
+quanto gastei em outubro?
+quanto gastei com alimentação nos últimos 3 meses por mês?
+quanto gastei por mês com alimentação?
+```
+
+- Verbos: `gastei`, `paguei`, `comprei` (despesas), `recebi`, `ganhei` (receitas).
+- O nome depois de `com`, `em`, `no`, `na`, `de`... é **categoria** se for exatamente o nome de uma categoria (sem diferenciar maiúsculas e acentos); senão, é **beneficiário** (e, sem beneficiário com esse nome, é procurado nas notas).
+- Períodos no fim: `hoje`, `ontem`, `esta semana`, `semana passada`, `este mês`, `mês passado`, `este ano`, `ano passado`, `em outubro` (o mais recente já iniciado), `em março de 2025`, `em 2025`, `nos últimos N dias` ou `meses` (N em algarismos ou por extenso, até doze). Sem período, todo o histórico.
+- `por mês`, `em cada mês` ou `mês a mês` mostram o total de cada mês separadamente. Sem período, o ano atual; com `nos últimos N meses`, os N meses do calendário (o atual e os anteriores). No máximo 24 meses.
+- Vale sempre só a conta da conversa, sem transferências nem saldo inicial.
+- Com o modo IA ligado, se o nome não for exatamente uma categoria nem um beneficiário, ou se a frase tiver outros filtros ("quanto gastei hoje no uber"), a mensagem vai para a IA.
+- `Quanto tenho em X?` continua sendo o saldo da categoria.
+
 ## Resumo do mês
 
 Algumas frases fixas mostram o resumo do mês sem IA:

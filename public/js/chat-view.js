@@ -235,7 +235,7 @@ function clarifyCard(entry, actions) {
 }
 
 const SEARCH_TITLES = {
-  list: 'BUSCA', sum: 'TOTAL', count: 'CONTAGEM', max: 'MAIOR VALOR', min: 'MENOR VALOR',
+  list: 'BUSCA', sum: 'TOTAL', count: 'CONTAGEM', max: 'MAIOR VALOR', min: 'MENOR VALOR', by_month: 'POR MÊS',
 };
 const TYPE_PLURAL = { expense: 'despesas', income: 'receitas', any: 'transações' };
 const TYPE_SINGULAR = { expense: 'despesa', income: 'receita', any: 'transação' };
@@ -249,7 +249,7 @@ function searchCard(data) {
   const card = element('section', 'transaction-card info-card search-card');
   card.setAttribute('aria-label', 'Resultado da busca de transações');
   let headline;
-  if (data.result === 'sum') headline = formatCurrency(Math.abs(data.total) / 100);
+  if (data.result === 'sum' || data.result === 'by_month') headline = formatCurrency((data.type === 'any' ? data.total : Math.abs(data.total)) / 100);
   else if ((data.result === 'max' || data.result === 'min') && data.transactions[0]) headline = formatCurrency(Math.abs(data.transactions[0].amount) / 100);
   else headline = `${data.count} ${(data.count === 1 ? TYPE_SINGULAR : TYPE_PLURAL)[data.type] || 'transações'}`;
   card.append(cardHeading(icons.search, `${SEARCH_TITLES[data.result] || 'BUSCA'} · ${(TYPE_PLURAL[data.type] || 'transações').toUpperCase()}`, headline, element('span')));
@@ -259,8 +259,26 @@ function searchCard(data) {
   if (data.notes) details.append(detailRow('notes', 'Nas notas', `“${data.notes}”`));
   if (data.category) details.append(detailRow('category', 'Categoria', data.category));
   details.append(detailRow('date', 'Período', searchPeriod(data)));
+  if (data.result === 'by_month') details.append(detailRow('batch', 'Transações', String(data.count)));
   if (data.result === 'sum' || data.result === 'count') details.append(detailRow('batch', data.result === 'sum' ? 'Transações' : 'Soma', data.result === 'sum' ? String(data.count) : formatCurrency(Math.abs(data.total) / 100)));
   card.append(details);
+  if (data.result === 'by_month' && data.months?.length) {
+    const list = element('ol', 'search-list month-list');
+    list.setAttribute('aria-label', 'Total por mês');
+    for (const item of data.months) {
+      const row = element('li', 'search-item');
+      const line = element('div', 'batch-line');
+      const value = data.type === 'any' ? item.total : Math.abs(item.total);
+      line.append(
+        element('span', 'batch-title', summaryMonth(item.month)),
+        element('span', `batch-amount ${item.count ? (data.type === 'income' || (data.type === 'any' && item.total > 0) ? 'income' : 'expense') : 'empty'}`, formatCurrency(value / 100)),
+      );
+      row.append(line);
+      if (item.count) row.append(element('div', 'batch-meta', `${item.count} ${item.count === 1 ? TYPE_SINGULAR[data.type] || 'transação' : TYPE_PLURAL[data.type] || 'transações'}`));
+      list.append(row);
+    }
+    card.append(list);
+  }
   if (data.transactions?.length) {
     const list = element('ol', 'search-list');
     for (const transaction of data.transactions) {

@@ -47,7 +47,7 @@ function sanitizeData(kind, data) {
   }
   if (kind === 'search') {
     return {
-      result: ['list', 'sum', 'count', 'max', 'min'].includes(data.result) ? data.result : 'list',
+      result: ['list', 'sum', 'count', 'max', 'min', 'by_month'].includes(data.result) ? data.result : 'list',
       type: ['expense', 'income', 'any'].includes(data.type) ? data.type : 'any',
       from: data.from ? text(data.from, 10) : null,
       to: text(data.to, 10),
@@ -55,6 +55,7 @@ function sanitizeData(kind, data) {
       payees: Array.isArray(data.payees) ? data.payees.slice(0, 10).map((payee) => text(payee, 200)) : [],
       category: data.category ? text(data.category, 200) : null,
       notes: data.notes ? text(data.notes, 200) : null,
+      ...(Array.isArray(data.months) ? { months: data.months.slice(0, 24).map((item) => ({ month: text(item?.month, 7), count: number(item?.count) ?? 0, total: number(item?.total) ?? 0 })) } : {}),
       count: number(data.count) ?? 0,
       total: number(data.total) ?? 0,
       transactions: Array.isArray(data.transactions) ? data.transactions.slice(0, 20).map((transaction) => ({

@@ -165,3 +165,9 @@ test('month summaries and search notes keep display fields only', () => {
   assert.equal(search.data.notes, 'Monster');
   assert.equal(search.data.transactions[0].notes, 'Big Mac e Monster');
 });
+
+test('month-by-month searches keep their months', () => {
+  const entry = sanitizeEntry({ id: 'm1', role: 'assistant', kind: 'search', text: '', at: 1, data: { result: 'by_month', type: 'expense', to: '2026-11-20', months: [{ month: '2026-10', count: 2, total: -12500, extra: 'x' }] } });
+  assert.equal(entry.data.result, 'by_month');
+  assert.deepEqual(entry.data.months, [{ month: '2026-10', count: 2, total: -12500 }]);
+});

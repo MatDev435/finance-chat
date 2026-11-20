@@ -159,3 +159,17 @@ test('month summary on the real engine: account totals via AQL and the budget mo
   assert.deepEqual(budget.topCategories, [{ name: 'Alimentação', spent: 22999 }, { name: 'Livre', spent: 15000 }]);
   assert.deepEqual(budget.overspent, [{ name: 'Alimentação', balance: -2999 }]);
 });
+
+test('month by month on the real engine: one total per calendar month, empty months included, splits by category', async () => {
+  const food = await executeSearch(api, spec({ categoryId: ids.food, from: '2026-08-15', to: '2026-11-19', result: 'by_month' }));
+  // August starts on the 15th (no transaction after it), 10/05 McDonald's + the split's food part + 10/31 Padaria, 11/01 Padaria.
+  assert.deepEqual([food.count, food.total], [4, -23000]);
+  assert.deepEqual(food.months, [
+    { month: '2026-08', count: 0, total: 0 },
+    { month: '2026-09', count: 0, total: 0 },
+    { month: '2026-10', count: 3, total: -22000 },
+    { month: '2026-11', count: 1, total: -1000 },
+  ]);
+  const all = await executeSearch(api, spec({ type: 'any', from: '2026-08-01', to: '2026-11-30', result: 'by_month' }));
+  assert.deepEqual(all.months.map((item) => [item.month, item.total]), [['2026-08', -4000], ['2026-09', 0], ['2026-10', -37000], ['2026-11', 19000]]);
+});

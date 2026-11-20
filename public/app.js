@@ -619,7 +619,9 @@ function renderResponse(accountId, data) {
     state.live.set(entryId, { type: 'clarify', accountId, draftId: data.draftId, missing: data.missing, categories: data.categories });
     addEntry(accountId, { ...base, id: entryId, kind: 'clarify', text: data.message, status: 'pending', data: { items: data.items, missing: data.missing } });
   } else if (data.kind === 'search') {
-    addEntry(accountId, { ...base, kind: 'search', text: data.message, data: data.search });
+    // Month by month: the card lists the months, so the bubble keeps only the total sentence.
+    const text = data.search?.result === 'by_month' ? String(data.message).split('\n')[0].replace(/ Por mês:$/, '') : data.message;
+    addEntry(accountId, { ...base, kind: 'search', text, data: data.search });
   } else if (data.kind === 'summary') {
     // The card shows every number; the bubble keeps only the heading line of the server's text.
     addEntry(accountId, { ...base, kind: 'summary', text: String(data.message).split('\n')[0], data: data.summary });
