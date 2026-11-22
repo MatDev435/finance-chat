@@ -1,3 +1,4 @@
+import { createReadStream } from 'node:fs';
 import { listChatAccounts } from './budget-operations.js';
 import { createChat } from './chat.js';
 import { createConversationStore } from './conversation.js';
@@ -8,6 +9,7 @@ import {
 import { createRateLimiter } from './rate-limit.js';
 import { createSearch } from './search.js';
 import { createSummary } from './summary.js';
+import { contentDisposition, createDesktopDownloads } from './desktop-downloads.js';
 import { currentLocalDate } from './transaction-mapping.js';
 import { createUndoStore } from './undo.js';
 import { ACCOUNT_ID_PATTERN, inputError, resolveConnectionInput } from './user-store.js';
@@ -96,8 +98,9 @@ function positiveInt(value, max, field) {
 
 export function createApp({
   config, auth, store, aiStore, openai, actual, pending, undo = createUndoStore(), conversations = createConversationStore(),
-  search, summary, publicDir, log = console,
+  search, summary, desktopDownloads, publicDir, log = console,
 }) {
+  const downloads = desktopDownloads ?? createDesktopDownloads({ dir: config.desktopDir });
   const limiters = {
     loginIp: createRateLimiter({ limit: 20, windowMs: 15 * MINUTE }),
     loginUser: createRateLimiter({ limit: 5, windowMs: 15 * MINUTE }),
@@ -341,6 +344,12 @@ export function createApp({
       },
     },
 
+    'GET /api/desktop': {
+      async handler(ctx) {
+        return sendJson(ctx.response, 200, { ok: true, ...(await downloads.list()) });
+      },
+    },
+
     'GET /api/accounts': {
       async handler(ctx) {
         const accounts = await actual.run(requireConnection(ctx.user.id), listChatAccounts);
@@ -439,6 +448,30 @@ export function createApp({
     return sendJson(response, 500, { ok: false, code: 'INTERNAL_ERROR', error: 'Erro interno. Tente novamente.' });
   }
 
+  /** An installer of the desktop app, for signed-in users only (the settings page links here). */
+  async function serveDownload(request, response, pathname) {
+    if (!auth.authenticate(parseCookies(request.headers.cookie)[ACCESS_COOKIE])) throw new HttpError(401, 'AUTH_REQUIRED', 'Sua sessão expirou. Entre novamente.');
+    let name;
+    try {
+      name = decodeURIComponent(pathname.slice('/downloads/'.length));
+    } catch {
+      throw new HttpError(404, 'NOT_FOUND', 'Arquivo não encontrado.');
+    }
+    const file = await downloads.open(name);
+    if (!file) throw new HttpError(404, 'NOT_FOUND', 'Arquivo não encontrado.');
+    response.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': file.size,
+      'Content-Disposition': contentDisposition(file.name),
+      'Cache-Control': 'private, no-cache',
+    });
+    if (request.method === 'HEAD') return response.end();
+    const stream = createReadStream(file.path);
+    stream.on('error', () => response.destroy());
+    stream.pipe(response);
+    return undefined;
+  }
+
   return async function handle(request, response) {
     applySecurityHeaders(response);
     try {
@@ -466,6 +499,9 @@ export function createApp({
         return await route.handler(ctx);
       }
 
+      if ((request.method === 'GET' || request.method === 'HEAD') && pathname.startsWith('/downloads/')) {
+        return await serveDownload(request, response, pathname);
+      }
       if (request.method === 'GET' || request.method === 'HEAD') return await serveStatic(request, response, publicDir, pathname);
       throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'Método não permitido.');
     } catch (error) {

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "local",
+  "description": "Bundled pages only (tauri://localhost): loader, first-run setup and settings. The Finance Chat site gets its own, smaller capability at runtime (src/lib.rs).",
+  "windows": ["main", "quick", "settings"],
+  "permissions": ["core:default", "local"]
+}

@@ -1,0 +1,35 @@
+# The Finance Chat site (a remote origin, configured at runtime) may only use these commands:
+# show/hide/resize the quick window, open the main or settings window, start or stop voice
+# capture and read a summary of the app settings. It can never change settings or download files.
+[[set]]
+identifier = "site"
+description = "Commands the Finance Chat site may call from the main and quick windows."
+permissions = [
+  "allow-quick-ready",
+  "allow-quick-hide",
+  "allow-quick-resize",
+  "allow-open-main",
+  "allow-open-settings",
+  "allow-voice-toggle",
+  "allow-desktop-info",
+]
+
+# The pages bundled with the app (loader, first-run setup and settings).
+[[set]]
+identifier = "local"
+description = "Commands of the bundled pages (loader, setup and settings)."
+permissions = [
+  "allow-quick-ready",
+  "allow-quick-hide",
+  "allow-quick-resize",
+  "allow-open-main",
+  "allow-open-settings",
+  "allow-voice-toggle",
+  "allow-desktop-info",
+  "allow-loader-target",
+  "allow-check-server",
+  "allow-get-settings",
+  "allow-save-settings",
+  "allow-download-model",
+  "allow-delete-model",
+]

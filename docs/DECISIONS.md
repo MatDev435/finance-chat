@@ -84,6 +84,10 @@ A conversa é reconstruída sempre que um chat é aberto. Como região `aria-liv
 
 Com autenticação por cookie, liberar outra origem exigiria `SameSite=None` e enfraqueceria a proteção contra CSRF. O frontend é sempre servido pelo próprio Finance Chat.
 
+## App para computador com Tauri, voz com Whisper local
+
+O PWA não consegue atalhos globais nem ficar na bandeja. O Tauri usa a webview do sistema (instaladores pequenos, pouca memória) e oferece bandeja, atalho global e instância única como plugins. A Web Speech API não funciona nas webviews embutidas, então a voz do app usa whisper.cpp no próprio computador: sem custo por uso e sem enviar áudio a terceiros. O app abre o mesmo site, em vez de levar uma cópia da interface, para não duplicar regras, sessões e telas. O atalho é "tocar para digitar, segurar para falar", com sons e anúncios marcando a gravação. Ctrl+Enter aprova (nunca Enter) e há uma pausa curta antes de aceitá-lo, para que um Enter dado por reflexo não aprove uma prévia que ainda não foi lida.
+
 ## Versão do `@actual-app/api`
 
 A versão do pacote fica travada no `package-lock.json`. Atualize-a junto com o servidor Actual, porque versões muito diferentes podem ser incompatíveis (o erro aparece como `version`).

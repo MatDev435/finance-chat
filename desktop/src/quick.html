@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registro rápido — Finance Chat</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="quick-loader">
+  <main data-window="quick">
+    <h1 id="title" tabindex="-1">Registro rápido</h1>
+    <p class="status" id="status" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span>Conectando ao Finance Chat...</p>
+    <div class="actions" id="error-actions" hidden>
+      <button type="button" id="retry">Tentar de novo</button>
+      <button type="button" class="secondary" id="change">Abrir o Finance Chat</button>
+    </div>
+  </main>
+  <script type="module" src="loader.js"></script>
+</body>
+</html>

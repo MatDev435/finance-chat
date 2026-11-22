@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Registro rápido — Finance Chat</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">
+  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/quick.css">
+</head>
+<body class="quick-body">
+  <main class="quick" id="quick" data-state="loading" aria-labelledby="quick-title">
+    <h1 class="sr-only" id="quick-title">Registro rápido do Finance Chat</h1>
+
+    <form id="quick-form" class="quick-form" novalidate>
+      <div class="composer quick-composer">
+        <div class="composer-icon" aria-hidden="true">✦</div>
+        <label class="sr-only" for="quick-message">Mensagem para o Finance Chat</label>
+        <input id="quick-message" autocomplete="off" maxlength="500" placeholder="Ex.: gastei 40 no mercado categoria alimentação" aria-describedby="quick-help" disabled>
+        <button id="quick-voice" class="voice-button" type="button" aria-pressed="false" aria-label="Ditar mensagem por voz" title="Ditar mensagem por voz" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21M8.5 21h7"/></svg></button>
+        <button id="quick-send" class="send-button" type="submit" aria-label="Enviar mensagem" title="Enviar mensagem" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-3 14-4-5-7-2Z"/><path d="m12 14 7-9"/></svg></button>
+      </div>
+      <div class="quick-meta">
+        <label class="quick-account" for="quick-account">
+          <span>Conta</span>
+          <select id="quick-account" disabled></select>
+        </label>
+        <p class="quick-help" id="quick-help">Enter envia · Ctrl+Enter aprova</p>
+      </div>
+    </form>
+
+    <p class="quick-status" id="quick-status" role="status" hidden></p>
+    <div class="quick-actions" id="quick-actions" hidden></div>
+
+    <div id="quick-conversation" class="conversation quick-conversation" aria-label="Resposta do Finance Chat"></div>
+    <div id="quick-typing" class="typing-indicator quick-typing" role="status" aria-live="polite" aria-label="Finance Chat está pensando" hidden>
+      <div class="typing-bubble"><span></span><span></span><span></span></div>
+    </div>
+    <p id="quick-announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+  </main>
+  <script src="/js/quick.js" type="module"></script>
+</body>
+</html>

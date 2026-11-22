@@ -394,6 +394,20 @@ test('serves the frontend with security headers and blocks path traversal', asyn
   await app.close();
 });
 
+test('the quick window page is served at /quick; the CSP only adds the desktop app IPC to connect-src', async () => {
+  const app = await startApp();
+  const page = await app.client().get('/quick');
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get('content-type'), /text\/html/);
+  assert.match(page.text, /<title>Registro rápido — Finance Chat<\/title>/);
+  const csp = page.headers.get('content-security-policy');
+  assert.match(csp, /connect-src 'self' ipc: http:\/\/ipc\.localhost;/);
+  assert.match(csp, /script-src 'self';/);
+  assert.equal((await app.client().get('/quick.css')).status, 200);
+  assert.equal((await app.client().get('/quickx')).status, 404);
+  await app.close();
+});
+
 test('oversized and malformed bodies are rejected', async () => {
   const app = await startApp();
   const browser = await signedIn(app, 'ana', ANA_CONNECTION);

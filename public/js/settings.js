@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { createAiSettings } from './ai-settings.js';
+import { createDesktopCard } from './desktop-card.js';
 
 /** Settings panel: default account, connection summary, session. */
 export function createSettings({ panel, onDefaultSaved, onAiChange, onEditConnection, onLogout, onClose }) {
@@ -50,6 +51,7 @@ export function createSettings({ panel, onDefaultSaved, onAiChange, onEditConnec
   });
 
   const aiSettings = createAiSettings({ section: panel.querySelector('#ai-settings'), onChange: onAiChange });
+  const desktopCard = createDesktopCard(panel.querySelector('#desktop-card'));
 
   panel.querySelector('#edit-connection').addEventListener('click', () => onEditConnection());
   panel.querySelector('#settings-logout').addEventListener('click', () => onLogout());
@@ -72,6 +74,7 @@ export function createSettings({ panel, onDefaultSaved, onAiChange, onEditConnec
       summaryRow('Criptografia', connection.hasEncryptionPassword ? 'Senha salva' : 'Não usada');
 
       aiSettings.open();
+      desktopCard.open();
 
       const user = panel.querySelector('#session-user');
       user.textContent = 'Conectado como ';

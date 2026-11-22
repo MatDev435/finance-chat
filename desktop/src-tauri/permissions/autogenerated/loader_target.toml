@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-loader-target"
+description = "Enables the loader_target command without any pre-configured scope."
+commands.allow = ["loader_target"]
+
+[[permission]]
+identifier = "deny-loader-target"
+description = "Denies the loader_target command without any pre-configured scope."
+commands.deny = ["loader_target"]

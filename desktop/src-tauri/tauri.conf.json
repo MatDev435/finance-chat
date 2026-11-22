@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Finance Chat",
+  "version": "0.1.0",
+  "identifier": "io.github.matdev435.financechat",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost",
+      "capabilities": [
+        "local"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Finance",
+    "shortDescription": "Registro rápido no Actual Budget, por texto ou voz.",
+    "longDescription": "Finance Chat para computador: fica na bandeja do sistema, abre o registro rápido com um atalho global e transcreve a voz localmente com o Whisper.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libasound2t64 | libasound2"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "alsa-lib"
+        ]
+      }
+    }
+  }
+}

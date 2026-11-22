@@ -29,6 +29,7 @@ O mesmo processo serve o frontend estático (`public/`) e a API (`/api/*`) na me
 | `conversation.js` | Contextos curtos por usuário e conta: rascunho pendente e filtros da última busca (15 minutos, em memória). |
 | `search.js`, `periods.js` | Busca de transações pela AQL do Actual (beneficiário, notas, categoria, valores), restrita à conta da conversa; períodos convertidos em datas. |
 | `summary.js` | Resumo do mês: totais e maiores despesas da conta (AQL) e o orçamento do mês (`getBudgetMonth`), só leitura. |
+| `desktop-downloads.js` | Instaladores do app para computador em `DESKTOP_DIR`: listagem com SHA-256 e entrega segura (`/downloads/<nome>`). |
 | `ai/models.js`, `ai/pricing.js` | Modelos oferecidos (GPT-6 com Structured Outputs) e tabela de preços versionada. |
 | `ai/store.js` | Configuração de IA por usuário (chave cifrada) e registro de consumo. |
 | `ai/openai-client.js` | Cliente HTTP da Responses API e da listagem de modelos, com erros mapeados e leitura do uso de tokens. |
@@ -100,8 +101,15 @@ HTML, CSS e JavaScript (módulos ES nativos), sem framework e sem build.
 | `js/navigation.js` | Regras puras de navegação (conta inicial, seleção, painel visível). |
 | `js/setup.js`, `js/settings.js` | Formulário de conexão e painel de configurações. |
 | `js/ai-settings.js`, `js/ai-format.js` | Seção de IA das configurações (switch, chave, modelo, teste) e formatação do consumo. |
+| `quick.html`, `quick.css`, `js/quick.js`, `js/quick-keys.js` | Registro rápido (`/quick`): a janela do atalho global do app para computador; uma mensagem por vez, mesmos cards e histórico. |
+| `js/desktop-bridge.js`, `js/desktop-card.js` | Ponte com o app para computador (quando o site roda dentro dele) e o card de download dos instaladores. |
+| `js/entry-data.js` | Dados de exibição das respostas da API, comuns ao chat e ao registro rápido. |
 | `manifest.webmanifest`, `icons/` | Manifesto do app instalável e ícones (192/512, maskable, apple-touch-icon). |
 | `sw.js` | Service worker: rede primeiro e cache só dos arquivos da interface; ignora `/api/*` e `/health`. |
+
+## App para computador (`desktop/`)
+
+App Tauri 2 que abre este mesmo site, com bandeja, atalho global para o registro rápido e voz transcrita localmente (Whisper). Detalhes em [DESKTOP.md](DESKTOP.md).
 
 ## Testes (`test/`)
 

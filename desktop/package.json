@@ -1,0 +1,15 @@
+{
+  "name": "finance-chat-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Finance Chat desktop app (Tauri 2): system tray, global shortcut for quick entry and local voice transcription.",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.6"
+  }
+}
