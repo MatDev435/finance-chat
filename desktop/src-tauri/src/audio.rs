@@ -47,6 +47,7 @@ pub fn rms(samples: &[f32]) -> f32 {
     (samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32).sqrt()
 }
 
+#[cfg_attr(not(feature = "whisper"), allow(dead_code))]
 /// Phrases Whisper is known to "hear" in silence or noise (subtitles credits and the like).
 const HALLUCINATIONS: &[&str] = &[
     "legendas pela comunidade amara.org",
@@ -59,6 +60,7 @@ const HALLUCINATIONS: &[&str] = &[
     "...",
 ];
 
+#[cfg_attr(not(feature = "whisper"), allow(dead_code))]
 /// Joins the segments, drops annotations such as "[Música]" and known hallucinations.
 pub fn clean_transcript(raw: &str) -> String {
     let mut text = String::with_capacity(raw.len());

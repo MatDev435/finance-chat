@@ -9,8 +9,10 @@
 
 mod audio;
 mod commands;
+mod model;
 mod settings;
 mod shortcut;
+mod sound;
 mod tray;
 mod voice;
 mod windows;
@@ -106,11 +108,14 @@ pub fn run() {
             commands::quick_resize,
             commands::open_main,
             commands::open_settings,
+            commands::voice_toggle,
             commands::desktop_info,
             commands::loader_target,
             commands::check_server,
             commands::get_settings,
             commands::save_settings,
+            commands::download_model,
+            commands::delete_model,
         ])
         .on_window_event(windows::on_window_event)
         .setup(|app| setup(app.handle()))

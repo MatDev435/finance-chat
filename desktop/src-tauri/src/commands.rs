@@ -16,6 +16,7 @@ use crate::{shortcut, windows, AppState};
 #[tauri::command]
 pub fn quick_ready(app: AppHandle) {
     app.state::<AppState>().set_quick_ready(true);
+    crate::voice::resend_state(&app);
 }
 
 #[tauri::command]
@@ -42,6 +43,12 @@ pub fn open_main(app: AppHandle, account_id: Option<String>) {
 pub fn open_settings(app: AppHandle) {
     windows::hide_quick(&app);
     windows::show_settings(&app);
+}
+
+/// Microphone button of the quick window: start listening, or stop and transcribe.
+#[tauri::command]
+pub fn voice_toggle(app: AppHandle) {
+    crate::voice::toggle(&app);
 }
 
 #[derive(Serialize)]
@@ -146,6 +153,16 @@ pub fn get_settings(app: AppHandle) -> SettingsView {
         voice_model: current.voice_model,
         sounds: current.sounds,
     }
+}
+
+#[tauri::command]
+pub async fn download_model(app: AppHandle, name: String) -> Result<(), String> {
+    crate::model::download(&app, &name).await
+}
+
+#[tauri::command]
+pub fn delete_model(app: AppHandle, name: String) -> Result<(), String> {
+    crate::model::delete(&app, &name)
 }
 
 #[derive(Deserialize)]
