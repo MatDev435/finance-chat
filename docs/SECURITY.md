@@ -57,6 +57,13 @@ O endereço do servidor Actual é informado pelo usuário, então o Finance Chat
 - Sem push, sincronização em segundo plano, analytics ou chamadas a terceiros.
 - `Permissions-Policy: microphone=(self)`: o microfone só pode ser pedido pelo próprio Finance Chat (ditado por voz), nunca por frames ou outras origens. O ditado usa o reconhecimento de voz do navegador; o áudio vai para o serviço do navegador (Google no Chrome, Apple no Safari), não para o servidor do Finance Chat, e o texto reconhecido só preenche o campo, sem envio automático.
 
+## App para computador
+
+- O app (Tauri) abre o site configurado; sessões, CSRF e CSP continuam do servidor. O site só pode chamar um conjunto pequeno de comandos (janela rápida, abrir janelas, voz, resumo das configurações), concedido em tempo de execução apenas à origem configurada. Configurações e downloads de modelos ficam restritos às páginas embutidas do app. Detalhes em [DESKTOP.md](DESKTOP.md#segurança).
+- A CSP do servidor só acrescenta os endereços do IPC do Tauri (`ipc:` e `http://ipc.localhost`) ao `connect-src`, necessários quando o site roda dentro do app.
+- A voz é transcrita no próprio computador (whisper.cpp); o áudio nunca é enviado a servidores.
+- Os instaladores (`/downloads/<nome>`) exigem sessão e só servem arquivos comuns de `DESKTOP_DIR` com nome e extensão de instalador (sem links simbólicos, subpastas ou `..`). O SHA-256 de cada arquivo aparece nas configurações para conferência.
+
 ## Dados locais
 
 - `DATA_DIR` contém o banco e os caches do Actual (cópias dos orçamentos). Mantenha-o com dono igual ao usuário do serviço e modo `700`.

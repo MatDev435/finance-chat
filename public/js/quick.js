@@ -195,6 +195,12 @@ function renderResponse(data) {
     addEntry({ ...base, kind: 'text', text: data.message || 'Pronto.' });
   }
   for (const note of data.notes || []) addEntry({ role: 'assistant', kind: 'text', text: note });
+  // Long answers (searches, summaries) are easier to read in the main window.
+  const readable = (item) => item?.kind === 'search' || item?.kind === 'summary';
+  if (readable(data) || (data.kind === 'answers' && data.answers.some(readable))) {
+    const accountId = currentAccountId();
+    setStatusAction('Abrir na conversa', () => openMain(accountId));
+  }
 }
 
 async function sendMessage(message, { categoryId, echo = message } = {}) {

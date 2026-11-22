@@ -142,9 +142,19 @@ Para um lote (`kind: "batch"` na prévia), conta e categorias de todos os itens 
 
 `{ accountId, draftId, item, part, categoryId }`: escolhe, na tela, a categoria de um campo pendente de um esclarecimento (`item` e `part` numerados a partir de 1; `part: null` fora de divisões). Não chama a IA. Responde como `/api/chat/preview` (outro `clarify`, uma prévia ou um lote). `409 NO_DRAFT` se o rascunho expirou, foi substituído ou é de outro usuário ou conversa.
 
+## App para computador
+
+### `GET /api/desktop`
+
+Instaladores disponíveis em `DESKTOP_DIR`: `{ version, installers: [{ name, platform: "windows" | "macos" | "linux", format: "exe" | "msi" | "dmg" | "appimage" | "deb" | "rpm", label, arch, version, size, sha256, url }] }`. Lista vazia quando a pasta não existe.
+
+### `GET /downloads/<nome>`
+
+Entrega um instalador (`application/octet-stream`, `Content-Disposition: attachment`) a usuários com sessão (`401` sem sessão). Só arquivos comuns da pasta com nome e extensão de instalador; qualquer outro caminho devolve `404`.
+
 ## Arquivos estáticos
 
-`GET /` serve `public/index.html`. Arquivos `.html`, `.css`, `.js` e `.svg` dentro de `public/` são servidos com `Cache-Control: no-cache`. Qualquer outro caminho devolve `404`.
+`GET /` serve `public/index.html` e `GET /quick` serve `public/quick.html` (o registro rápido do app para computador). Arquivos `.html`, `.css`, `.js` e `.svg` dentro de `public/` são servidos com `Cache-Control: no-cache`. Qualquer outro caminho devolve `404`.
 
 ## Mudanças em relação à versão 0.1
 
