@@ -48,11 +48,14 @@ Alt+Espaço pressionado ─┬─ solto em menos de 280 ms → toque
 ## Voz
 
 - **Captura:** microfone padrão (cpal), numa thread dedicada, até soltar o atalho ou clicar de novo no microfone. O limite é de 60 s.
-- **Sons:** tons gerados na hora, sem arquivos: dois tons subindo quando o microfone **começa a ouvir**, descendo quando para, um tom grave em erros. O áudio gravado durante o som de início é descartado. Os sons podem ser desligados.
+- **Sons:** tons gerados na hora, sem arquivos: dois tons subindo quando o microfone **começa a ouvir** (é a hora de falar), descendo quando para, um tom grave em erros. Os sons podem ser desligados.
 - **Transcrição:** whisper.cpp (whisper-rs) em português, com o modelo carregado uma vez e mantido em memória.
   - Silêncio ou falas muito curtas nem chegam ao Whisper, que costuma inventar texto no silêncio.
   - Anotações como "[Música]" e alucinações conhecidas ("Legendas pela comunidade Amara.org") são removidas.
+  - O silêncio antes e depois da fala é cortado antes do Whisper; gravações que começam ou terminam em silêncio são as que mais o fazem inventar texto.
   - O prompt inicial é uma lista de palavras do domínio. Uma frase de exemplo no prompt foi copiada para a transcrição nos testes.
+  - Com áudio pouco claro, o Whisper às vezes repete a lista do prompt ("Gastei, paguei, recebi…"). Esse eco é removido, e a pessoa vê só o que foi de fato reconhecido.
+  - Do áudio gravado, só é descartado o trecho do som de início (160 ms): cortar o começo da primeira palavra faz o Whisper adivinhá-la.
 - **Modelos:** "Básico" (base, cerca de 150 MB) ou "Pequeno" (small, cerca de 490 MB, recomendado).
   - São baixados uma vez do repositório oficial do whisper.cpp no Hugging Face, com progresso.
   - O download usa um arquivo `.part` e verificação de tamanho.

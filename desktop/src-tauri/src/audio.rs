@@ -47,8 +47,57 @@ pub fn rms(samples: &[f32]) -> f32 {
     (samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32).sqrt()
 }
 
+/// Removes the silence before the first and after the last loud enough 20 ms frame
+/// (keeping 200 ms around the speech). Whisper is much more likely to invent text, or to
+/// repeat its prompt, when a recording starts or ends with silence. Returns an empty
+/// vector when nothing is loud enough.
+pub fn trim_silence(samples: &[f32], rate: u32) -> Vec<f32> {
+    let frame = ((rate as usize) / 50).max(1);
+    let levels: Vec<f32> = samples.chunks(frame).map(rms).collect();
+    let peak = levels.iter().copied().fold(0.0_f32, f32::max);
+    let threshold = (peak * 0.1).max(0.004);
+    let (Some(first), Some(last)) = (levels.iter().position(|level| *level >= threshold), levels.iter().rposition(|level| *level >= threshold)) else {
+        return Vec::new();
+    };
+    let padding = (rate as usize) / 5;
+    let start = (first * frame).saturating_sub(padding);
+    let end = ((last + 1) * frame + padding).min(samples.len());
+    samples[start..end].to_vec()
+}
+
+/// Domain words given to Whisper as its initial prompt (a list, not sentences: Whisper copies
+/// sentences from the prompt into the transcript).
+pub const PROMPT_WORDS: &[&str] = &[
+    "Gastei", "paguei", "recebi", "reais", "mercado", "categoria", "alimentação", "transporte", "saúde", "últimos meses", "por mês",
+];
+
+/// With unclear audio Whisper may echo its prompt ("Gastei, paguei, recebi, reais, ..."): a leading
+/// run of two or more prompt words, in the prompt's order and separated by commas, is removed, so the
+/// user sees only what was actually recognized (and records again if needed).
 #[cfg_attr(not(feature = "whisper"), allow(dead_code))]
+pub fn strip_prompt_echo(text: &str) -> String {
+    let parts: Vec<&str> = text.split(',').collect();
+    let mut matched = 0;
+    for (part, word) in parts.iter().zip(PROMPT_WORDS) {
+        if part.trim().trim_end_matches('.').to_lowercase() == word.to_lowercase() {
+            matched += 1;
+        } else {
+            break;
+        }
+    }
+    if matched < 2 {
+        return text.to_string();
+    }
+    let rest = parts[matched..].join(",").trim().to_string();
+    let mut characters = rest.chars();
+    match characters.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + characters.as_str(),
+        None => String::new(),
+    }
+}
+
 /// Phrases Whisper is known to "hear" in silence or noise (subtitles credits and the like).
+#[cfg_attr(not(feature = "whisper"), allow(dead_code))]
 const HALLUCINATIONS: &[&str] = &[
     "legendas pela comunidade amara.org",
     "legendas pela comunidade amara.org.",
@@ -108,6 +157,27 @@ mod tests {
         assert_eq!(rms(&[]), 0.0);
         assert!(rms(&[0.0; 100]) < 1e-9);
         assert!((rms(&[0.5, -0.5]) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn silence_around_the_speech_is_trimmed() {
+        let rate = 16_000;
+        let mut samples = vec![0.0_f32; 16_000];
+        samples.extend((0..8_000).map(|index| (index as f32 * 0.05).sin() * 0.3));
+        samples.extend(vec![0.001_f32; 32_000]);
+        let trimmed = trim_silence(&samples, rate);
+        // 0.5 s of speech plus about 200 ms on each side.
+        assert!(trimmed.len() >= 8_000 && trimmed.len() <= 8_000 + 2 * 3_200 + 640, "{}", trimmed.len());
+        assert!(trim_silence(&vec![0.0005_f32; 16_000], rate).is_empty());
+        assert!(trim_silence(&[], rate).is_empty());
+    }
+
+    #[test]
+    fn an_echo_of_the_prompt_is_removed() {
+        assert_eq!(strip_prompt_echo("Gastei, paguei, recebi, reais, no mercado, categoria, alimentação."), "No mercado, categoria, alimentação.");
+        assert_eq!(strip_prompt_echo("Gastei, paguei, recebi, reais, mercado, categoria, alimentação."), "");
+        assert_eq!(strip_prompt_echo("Gastei 40 reais no mercado, categoria, alimentação."), "Gastei 40 reais no mercado, categoria, alimentação.");
+        assert_eq!(strip_prompt_echo("Gastei, digo, paguei 30 no mercado"), "Gastei, digo, paguei 30 no mercado");
     }
 
     #[test]

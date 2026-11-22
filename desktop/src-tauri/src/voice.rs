@@ -148,7 +148,7 @@ fn start(app: &AppHandle) {
             Err(message) => fail(&app, &message),
             Ok((mono, rate)) => {
                 emit(&app, json!({ "state": "transcribing" }));
-                let samples = audio::resample(&mono, rate, audio::WHISPER_RATE);
+                let samples = audio::trim_silence(&audio::resample(&mono, rate, audio::WHISPER_RATE), audio::WHISPER_RATE);
                 let too_short = (samples.len() as f32) < audio::WHISPER_RATE as f32 * MIN_SPEECH_SECONDS;
                 if too_short || audio::rms(&samples) < SILENCE_RMS {
                     emit(&app, json!({ "state": "done", "text": "" }));
@@ -199,7 +199,8 @@ fn capture(app: &AppHandle, stop: mpsc::Receiver<()>, sounds: bool) -> Result<(V
     let interleaved = std::mem::take(&mut *buffer.lock().map_err(|_| "Falha ao ler o áudio.".to_string())?);
     let mut mono = audio::to_mono(&interleaved, channels);
     if sounds {
-        let skip = ((rate as f32) * Cue::Start.duration().as_secs_f32() * 1.2) as usize;
+        // Exactly the cue: it means "speak now", and cutting into the first word makes Whisper guess it.
+        let skip = ((rate as f32) * Cue::Start.duration().as_secs_f32()) as usize;
         mono.drain(..skip.min(mono.len()));
     }
     Ok((mono, rate))
@@ -253,7 +254,8 @@ fn transcribe(model_path: &std::path::Path, samples: &[f32]) -> Result<String, S
     params.set_print_timestamps(false);
     // Nudges the style (Brazilian Portuguese, amounts as digits) without example sentences:
     // Whisper copies the content of a prompt that reads like a previous transcript.
-    params.set_initial_prompt("Gastei, paguei, recebi, reais, mercado, categoria, alimentação, transporte, saúde, últimos meses, por mês.");
+    let prompt = format!("{}.", audio::PROMPT_WORDS.join(", "));
+    params.set_initial_prompt(&prompt);
 
     state.full(params, samples).map_err(|_| "Não foi possível transcrever o áudio.".to_string())?;
     let mut text = String::new();
@@ -263,7 +265,7 @@ fn transcribe(model_path: &std::path::Path, samples: &[f32]) -> Result<String, S
             text.push(' ');
         }
     }
-    Ok(audio::clean_transcript(&text))
+    Ok(audio::strip_prompt_echo(&audio::clean_transcript(&text)))
 }
 
 #[cfg(not(feature = "whisper"))]
@@ -310,7 +312,7 @@ mod tests {
         let model = std::env::var("FINANCE_CHAT_TEST_MODEL").expect("FINANCE_CHAT_TEST_MODEL");
         let wav = std::fs::read(std::env::var("FINANCE_CHAT_TEST_WAV").expect("FINANCE_CHAT_TEST_WAV")).unwrap();
         let (rate, channels, interleaved) = read_wav(&wav);
-        let samples = audio::resample(&audio::to_mono(&interleaved, channels), rate, audio::WHISPER_RATE);
+        let samples = audio::trim_silence(&audio::resample(&audio::to_mono(&interleaved, channels), rate, audio::WHISPER_RATE), audio::WHISPER_RATE);
         assert!(audio::rms(&samples) > SILENCE_RMS);
         let text = transcribe(std::path::Path::new(&model), &samples).expect("transcription");
         println!("transcript: {text}");
