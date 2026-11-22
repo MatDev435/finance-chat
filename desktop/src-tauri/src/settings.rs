@@ -12,6 +12,9 @@ pub const DEFAULT_SHORTCUT: &str = "Alt+Space";
 /// Whisper models offered for download (multilingual ggml files of whisper.cpp).
 pub const MODELS: &[&str] = &["base", "small"];
 pub const DEFAULT_MODEL: &str = "small";
+/// How long the voice model stays in memory after a use (minutes; 0 = always).
+pub const KEEP_MODEL_MINUTES: &[u32] = &[5, 10, 30, 60, 0];
+pub const DEFAULT_KEEP_MODEL_MINUTES: u32 = 10;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -22,11 +25,19 @@ pub struct Settings {
     pub voice_model: String,
     /// Sound cues when voice capture starts and stops.
     pub sounds: bool,
+    /// Minutes the voice model stays in memory after a use (0 = always).
+    pub keep_model_minutes: u32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { server_url: None, shortcut: DEFAULT_SHORTCUT.into(), voice_model: DEFAULT_MODEL.into(), sounds: true }
+        Self {
+            server_url: None,
+            shortcut: DEFAULT_SHORTCUT.into(),
+            voice_model: DEFAULT_MODEL.into(),
+            sounds: true,
+            keep_model_minutes: DEFAULT_KEEP_MODEL_MINUTES,
+        }
     }
 }
 
@@ -39,6 +50,9 @@ impl Settings {
         }
         if !MODELS.contains(&self.voice_model.as_str()) {
             self.voice_model = DEFAULT_MODEL.into();
+        }
+        if !KEEP_MODEL_MINUTES.contains(&self.keep_model_minutes) {
+            self.keep_model_minutes = DEFAULT_KEEP_MODEL_MINUTES;
         }
         self
     }
@@ -104,7 +118,7 @@ mod tests {
 
     #[test]
     fn unknown_values_fall_back_to_defaults() {
-        let settings = Settings { server_url: Some("not a url ::".into()), shortcut: "F13".into(), voice_model: "huge".into(), sounds: false }.sanitized();
+        let settings = Settings { server_url: Some("not a url ::".into()), shortcut: "F13".into(), voice_model: "huge".into(), sounds: false, keep_model_minutes: 7 }.sanitized();
         assert_eq!(settings, Settings { sounds: false, ..Settings::default() });
         let parsed: Settings = serde_json::from_str(r#"{"serverUrl":"finance.example.com"}"#).unwrap();
         assert_eq!(parsed.sanitized().server_url.as_deref(), Some("https://finance.example.com"));

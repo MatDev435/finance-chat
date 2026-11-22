@@ -137,6 +137,7 @@ fn start(app: &AppHandle) {
     if let Ok(mut stop) = state.voice.stop.lock() {
         *stop = Some(stop_sender);
     }
+    preload(model_path.clone());
     let app = app.clone();
     thread::spawn(move || {
         let sounds = sounds_enabled(&app);
@@ -161,6 +162,7 @@ fn start(app: &AppHandle) {
             }
         }
         app.state::<AppState>().voice.busy.store(false, Ordering::SeqCst);
+        schedule_unload(&app);
     });
 }
 
@@ -225,19 +227,74 @@ where
         .map_err(|_| "Não foi possível abrir o microfone.".to_string())
 }
 
-#[cfg(feature = "whisper")]
-fn transcribe(model_path: &std::path::Path, samples: &[f32]) -> Result<String, String> {
-    use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+/* ---------- Model in memory ----------
+ * The model takes 150-500 MB of RAM. It is loaded while the user speaks (so the wait does not show)
+ * and dropped after the configured idle time (Settings::keep_model_minutes, 0 = keep it). */
 
-    // The model stays loaded between uses (loading it takes a moment); a different model replaces it.
-    static CONTEXT: Mutex<Option<(std::path::PathBuf, WhisperContext)>> = Mutex::new(None);
+#[cfg(feature = "whisper")]
+static CONTEXT: Mutex<Option<(std::path::PathBuf, whisper_rs::WhisperContext)>> = Mutex::new(None);
+/// Bumped on every use: an unload scheduled before a newer use does nothing.
+static USES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Loads the model if needed (a different model replaces the loaded one). Holds the lock while
+/// loading, so a transcription that starts meanwhile simply waits for it.
+#[cfg(feature = "whisper")]
+fn ensure_loaded(model_path: &std::path::Path) -> Result<std::sync::MutexGuard<'static, Option<(std::path::PathBuf, whisper_rs::WhisperContext)>>, String> {
+    use whisper_rs::{WhisperContext, WhisperContextParameters};
     let mut slot = CONTEXT.lock().map_err(|_| "Falha interna na transcrição.".to_string())?;
     if slot.as_ref().map(|(path, _)| path != model_path).unwrap_or(true) {
+        *slot = None; // free the previous model before loading another one
         let path = model_path.to_str().ok_or("Caminho do modelo inválido.")?;
-        let context = WhisperContext::new_with_params(path, WhisperContextParameters::default())
+        let mut context_params = WhisperContextParameters::default();
+        context_params.flash_attn(true);
+        let context = WhisperContext::new_with_params(path, context_params)
             .map_err(|_| "Não foi possível carregar o modelo de voz. Baixe-o de novo nas configurações do app.".to_string())?;
         *slot = Some((model_path.to_path_buf(), context));
     }
+    Ok(slot)
+}
+
+/// Starts loading the model in the background (called when the recording starts).
+fn preload(model_path: std::path::PathBuf) {
+    USES.fetch_add(1, Ordering::SeqCst);
+    #[cfg(feature = "whisper")]
+    thread::spawn(move || {
+        // Loading is the point; the lock is released right away.
+        drop(ensure_loaded(&model_path));
+    });
+    #[cfg(not(feature = "whisper"))]
+    let _ = model_path;
+}
+
+/// After a use: drop the model once it has been idle for the configured time.
+fn schedule_unload(app: &AppHandle) {
+    let minutes = app.state::<AppState>().settings.lock().map(|settings| settings.keep_model_minutes).unwrap_or(10);
+    let use_number = USES.fetch_add(1, Ordering::SeqCst) + 1;
+    if minutes == 0 {
+        return;
+    }
+    let app = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(u64::from(minutes) * 60));
+        if USES.load(Ordering::SeqCst) == use_number && !app.state::<AppState>().voice.busy() {
+            unload();
+        }
+    });
+}
+
+/// Frees the model's memory now (idle timeout, model deleted or changed in the settings).
+pub fn unload() {
+    #[cfg(feature = "whisper")]
+    if let Ok(mut slot) = CONTEXT.try_lock() {
+        *slot = None;
+    }
+}
+
+#[cfg(feature = "whisper")]
+fn transcribe(model_path: &std::path::Path, samples: &[f32]) -> Result<String, String> {
+    use whisper_rs::{FullParams, SamplingStrategy};
+
+    let slot = ensure_loaded(model_path)?;
     let (_, context) = slot.as_ref().ok_or("Modelo indisponível.")?;
     let mut state = context.create_state().map_err(|_| "Falha ao preparar a transcrição.".to_string())?;
 
@@ -247,6 +304,7 @@ fn transcribe(model_path: &std::path::Path, samples: &[f32]) -> Result<String, S
     let threads = thread::available_parallelism().map(|count| count.get()).unwrap_or(4).clamp(1, 8);
     params.set_n_threads(threads as i32);
     params.set_no_context(true);
+    params.set_audio_ctx(audio_ctx(samples.len()));
     params.set_suppress_blank(true);
     params.set_print_special(false);
     params.set_print_progress(false);
@@ -266,6 +324,14 @@ fn transcribe(model_path: &std::path::Path, samples: &[f32]) -> Result<String, S
         }
     }
     Ok(audio::strip_prompt_echo(&audio::clean_transcript(&text)))
+}
+
+/// Whisper's encoder always processes a 30 s window (1500 frames, 50 per second); a short command
+/// only needs a window as long as itself (plus a margin), which makes transcription several times faster.
+#[cfg_attr(not(feature = "whisper"), allow(dead_code))]
+fn audio_ctx(samples: usize) -> i32 {
+    let seconds = samples as f32 / audio::WHISPER_RATE as f32;
+    ((seconds * 50.0).ceil() as i32 + 64).clamp(256, 1500)
 }
 
 #[cfg(not(feature = "whisper"))]
@@ -314,8 +380,9 @@ mod tests {
         let (rate, channels, interleaved) = read_wav(&wav);
         let samples = audio::trim_silence(&audio::resample(&audio::to_mono(&interleaved, channels), rate, audio::WHISPER_RATE), audio::WHISPER_RATE);
         assert!(audio::rms(&samples) > SILENCE_RMS);
+        let started = std::time::Instant::now();
         let text = transcribe(std::path::Path::new(&model), &samples).expect("transcription");
-        println!("transcript: {text}");
+        println!("transcript: {text} ({:.2} s for {:.1} s of audio)", started.elapsed().as_secs_f32(), samples.len() as f32 / audio::WHISPER_RATE as f32);
         let expected = std::env::var("FINANCE_CHAT_TEST_EXPECT").unwrap_or_else(|_| "mercado".into());
         assert!(text.to_lowercase().contains(&expected.to_lowercase()), "{text:?} should contain {expected:?}");
     }

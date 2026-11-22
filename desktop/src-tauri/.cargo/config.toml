@@ -1,0 +1,6 @@
+# whisper.cpp (built by whisper-rs-sys through CMake) is optimized for the machine that compiles it by
+# default (GGML_NATIVE=ON). On CI that is the runner's CPU, not the user's: the installer could be slow
+# or even use instructions the user's CPU lacks. Build for a portable x86-64 baseline instead:
+# SSE4.2, AVX, AVX2, BMI2, FMA and F16C (every desktop CPU since about 2013-2015).
+[env]
+GGML_NATIVE = "OFF"

@@ -30,6 +30,7 @@ input[type="url"], input[type="text"], select {
 }
 .check { display: flex; align-items: flex-start; gap: .6rem; font-weight: 500; }
 .check input { width: 1.15rem; height: 1.15rem; margin-top: .2rem; accent-color: var(--purple); }
+.keep { margin: 1rem 0 .8rem; }
 .models { margin-top: .8rem; padding: .2rem .9rem .4rem; }
 .models legend { font-size: .92rem; }
 .model { display: grid; grid-template-columns: auto 1fr; gap: .2rem .6rem; align-items: start; padding: .7rem 0; border-bottom: 1px solid var(--line); }

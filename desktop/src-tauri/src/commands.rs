@@ -8,7 +8,7 @@ use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
-use crate::settings::{self, Settings, SHORTCUTS};
+use crate::settings::{self, Settings, KEEP_MODEL_MINUTES, SHORTCUTS};
 use crate::{shortcut, windows, AppState};
 
 /* ---------- Site (remote) and local pages ---------- */
@@ -123,6 +123,21 @@ pub struct Choice {
 }
 
 #[derive(Serialize)]
+pub struct KeepOption {
+    value: u32,
+    label: String,
+}
+
+fn keep_label(minutes: u32) -> String {
+    match minutes {
+        0 => "Sempre (resposta mais rápida, mais memória)".into(),
+        60 => "1 hora".into(),
+        10 => "10 minutos (recomendado)".into(),
+        other => format!("{other} minutos"),
+    }
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsView {
     server_url: Option<String>,
@@ -132,6 +147,8 @@ pub struct SettingsView {
     voice_model: String,
     models: Vec<crate::voice::ModelInfo>,
     voice_available: bool,
+    keep_model_minutes: u32,
+    keep_model_options: Vec<KeepOption>,
     sounds: bool,
     autostart: bool,
     version: String,
@@ -146,6 +163,8 @@ pub fn get_settings(app: AppHandle) -> SettingsView {
         shortcut_error: state.shortcut_error.lock().ok().and_then(|error| error.clone()),
         models: crate::voice::models(&app),
         voice_available: crate::voice::AVAILABLE,
+        keep_model_minutes: current.keep_model_minutes,
+        keep_model_options: KEEP_MODEL_MINUTES.iter().map(|value| KeepOption { value: *value, label: keep_label(*value) }).collect(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
         server_url: current.server_url,
@@ -162,6 +181,7 @@ pub async fn download_model(app: AppHandle, name: String) -> Result<(), String> 
 
 #[tauri::command]
 pub fn delete_model(app: AppHandle, name: String) -> Result<(), String> {
+    crate::voice::unload();
     crate::model::delete(&app, &name)
 }
 
@@ -172,6 +192,7 @@ pub struct SettingsInput {
     shortcut: String,
     voice_model: String,
     sounds: bool,
+    keep_model_minutes: u32,
     autostart: bool,
 }
 
@@ -194,7 +215,16 @@ pub fn save_settings(app: AppHandle, input: SettingsInput) -> Result<SaveResult,
     }
     let state = app.state::<AppState>();
     let previous = state.settings.lock().map(|settings| settings.clone()).unwrap_or_default();
-    let next = Settings { server_url: Some(server_url), shortcut: input.shortcut, voice_model: input.voice_model, sounds: input.sounds };
+    if !KEEP_MODEL_MINUTES.contains(&input.keep_model_minutes) {
+        return Err("Escolha um dos tempos da lista.".into());
+    }
+    let next = Settings {
+        server_url: Some(server_url),
+        shortcut: input.shortcut,
+        voice_model: input.voice_model,
+        sounds: input.sounds,
+        keep_model_minutes: input.keep_model_minutes,
+    };
     settings::save(&app, &next)?;
     if let Ok(mut current) = state.settings.lock() {
         *current = next.clone();
@@ -206,6 +236,9 @@ pub fn save_settings(app: AppHandle, input: SettingsInput) -> Result<SaveResult,
     }
     if next.shortcut != previous.shortcut {
         shortcut::apply(&app);
+    }
+    if next.voice_model != previous.voice_model {
+        crate::voice::unload();
     }
     let restarting = next.server_url != previous.server_url;
     if restarting {

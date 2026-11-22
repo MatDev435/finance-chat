@@ -35,6 +35,11 @@
           <legend>Modelo de reconhecimento de voz</legend>
           <div id="models"></div>
         </fieldset>
+        <div class="field keep">
+          <label for="keep-model">Manter o modelo de voz na memória</label>
+          <select id="keep-model" aria-describedby="keep-model-hint"></select>
+          <p class="hint" id="keep-model-hint">Carregado, o modelo usa cerca de 150 a 500 MB de memória. Depois desse tempo sem usar a voz, ele é liberado; na próxima vez, carrega enquanto você fala.</p>
+        </div>
         <label class="check"><input type="checkbox" id="sounds"> Tocar um som quando a gravação começar e terminar</label>
       </fieldset>
       <p class="hint" id="voice-unavailable" hidden>Esta versão do app foi gerada sem reconhecimento de voz.</p>

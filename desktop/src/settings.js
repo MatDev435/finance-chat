@@ -84,6 +84,8 @@ async function load() {
   $('voice').hidden = !current.voiceAvailable;
   $('voice-unavailable').hidden = current.voiceAvailable;
   if (current.voiceAvailable) renderModels(current.models);
+  $('keep-model').replaceChildren(...current.keepModelOptions.map((item) => Object.assign(document.createElement('option'), { value: String(item.value), textContent: item.label })));
+  $('keep-model').value = String(current.keepModelMinutes);
   $('sounds').checked = current.sounds;
   $('autostart').checked = current.autostart;
 }
@@ -97,7 +99,10 @@ $('settings').addEventListener('submit', async (event) => {
     const origin = await invoke('check_server', { url: $('server-url').value });
     const voiceModel = document.querySelector('input[name="voice-model"]:checked')?.value || current.voiceModel;
     const result = await invoke('save_settings', {
-      input: { serverUrl: origin, shortcut: $('shortcut').value, voiceModel, sounds: $('sounds').checked, autostart: $('autostart').checked },
+      input: {
+        serverUrl: origin, shortcut: $('shortcut').value, voiceModel, sounds: $('sounds').checked,
+        keepModelMinutes: Number($('keep-model').value), autostart: $('autostart').checked,
+      },
     });
     renderShortcutError(result.shortcutError);
     announce(status, result.restarting ? 'Salvo. O app vai reiniciar com o novo endereço.' : 'Configurações salvas.', result.shortcutError ? 'error' : 'ok');

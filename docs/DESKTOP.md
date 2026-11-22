@@ -49,7 +49,12 @@ Alt+Espaço pressionado ─┬─ solto em menos de 280 ms → toque
 
 - **Captura:** microfone padrão (cpal), numa thread dedicada, até soltar o atalho ou clicar de novo no microfone. O limite é de 60 s.
 - **Sons:** tons gerados na hora, sem arquivos: dois tons subindo quando o microfone **começa a ouvir** (é a hora de falar), descendo quando para, um tom grave em erros. Os sons podem ser desligados.
-- **Transcrição:** whisper.cpp (whisper-rs) em português, com o modelo carregado uma vez e mantido em memória.
+- **Transcrição:** whisper.cpp (whisper-rs) em português.
+  - **Velocidade:** o whisper.cpp é compilado para uma base portátil de x86-64 com AVX2/FMA (`GGML_NATIVE=OFF` em `src-tauri/.cargo/config.toml`). Antes, o build se otimizava para a máquina do CI e, no Windows, saía sem AVX, o que deixava a transcrição muito lenta.
+  - A janela do codificador acompanha o tamanho do áudio (`audio_ctx`) em vez dos 30 s fixos, e a atenção usa flash attention.
+  - Medido aqui com frases de cerca de 4 s, incluindo carregar o modelo: Pequeno de cerca de 3,6 s para cerca de 0,9 s; Básico de cerca de 1,1 s para cerca de 0,4 s.
+  - **Memória:** o modelo (150 a 500 MB) começa a carregar assim que a gravação começa, em paralelo com a fala, e é liberado depois de um tempo sem uso: 10 minutos por padrão, configurável (5, 10, 30, 60 minutos ou sempre).
+  - Medido aqui: 173 MB antes, cerca de 750 MB durante e logo após a transcrição, e 200 MB depois da liberação.
   - Silêncio ou falas muito curtas nem chegam ao Whisper, que costuma inventar texto no silêncio.
   - Anotações como "[Música]" e alucinações conhecidas ("Legendas pela comunidade Amara.org") são removidas.
   - O silêncio antes e depois da fala é cortado antes do Whisper; gravações que começam ou terminam em silêncio são as que mais o fazem inventar texto.
@@ -102,4 +107,4 @@ Requisito do projeto em todas as janelas:
 - Linux: a bandeja precisa da `libayatana-appindicator3` (dependência do pacote `.deb`). Sem ela, o app funciona sem bandeja, e fechar a janela principal encerra o app.
 - Sem assinatura de código, o Windows e o macOS mostram avisos na instalação.
 - Sem atualização automática: novas versões são baixadas pelas configurações do site.
-- O desempenho do Whisper depende do processador. O modelo small leva alguns segundos para frases curtas num processador comum, e o base é mais rápido e menos preciso.
+- O desempenho do Whisper depende do processador: com o build atual, cerca de 1 s por frase curta no modelo Pequeno num processador comum. Processadores sem AVX2 (anteriores a cerca de 2013) não são suportados.
