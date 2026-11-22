@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configurações do app — Finance Chat</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main>
+    <div class="brand"><img src="icon.png" alt="" width="42" height="42"><h1>Configurações do app</h1></div>
+    <p class="lead" id="version"></p>
+
+    <form id="settings" novalidate>
+      <div class="field">
+        <label for="server-url">Endereço do Finance Chat</label>
+        <input id="server-url" type="url" inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false" required aria-describedby="server-hint">
+        <p class="hint" id="server-hint">Ao trocar o endereço, o app reinicia.</p>
+      </div>
+
+      <fieldset>
+        <legend>Atalho global</legend>
+        <div class="field">
+          <label for="shortcut">Atalho do registro rápido</label>
+          <select id="shortcut" aria-describedby="shortcut-hint"></select>
+          <p class="hint" id="shortcut-hint">Toque no atalho para digitar. Segure enquanto fala para ditar, e solte para transcrever.</p>
+        </div>
+        <p class="status error" id="shortcut-error" role="alert" hidden></p>
+      </fieldset>
+
+      <fieldset id="voice" hidden>
+        <legend>Voz (transcrição no computador)</legend>
+        <p class="hint">O áudio é transcrito pelo Whisper no próprio computador e nunca é enviado ao servidor. Baixe um modelo uma vez para usar a voz.</p>
+        <div id="models" role="radiogroup" aria-label="Modelo de reconhecimento de voz"></div>
+        <label class="check"><input type="checkbox" id="sounds"> Tocar um som quando a gravação começar e terminar</label>
+      </fieldset>
+      <p class="hint" id="voice-unavailable" hidden>Esta versão do app foi gerada sem reconhecimento de voz.</p>
+
+      <fieldset>
+        <legend>Sistema</legend>
+        <label class="check"><input type="checkbox" id="autostart"> Abrir o Finance Chat com o sistema (fica na bandeja)</label>
+      </fieldset>
+
+      <p class="status" id="status" role="status" aria-live="polite" hidden></p>
+      <div class="actions"><button type="submit" id="save">Salvar</button></div>
+    </form>
+  </main>
+  <script type="module" src="settings.js"></script>
+</body>
+</html>
