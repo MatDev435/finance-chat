@@ -32,6 +32,7 @@ pub struct AppState {
     pub voice: voice::Voice,
     shortcut_paused: AtomicBool,
     quick_ready: AtomicBool,
+    has_tray: AtomicBool,
 }
 
 impl AppState {
@@ -49,6 +50,11 @@ impl AppState {
 
     pub fn set_quick_ready(&self, ready: bool) {
         self.quick_ready.store(ready, Ordering::SeqCst);
+    }
+
+    /// Without a tray icon, closing the main window quits (the app would be unreachable otherwise).
+    pub fn has_tray(&self) -> bool {
+        self.has_tray.load(Ordering::SeqCst)
     }
 
     /// Voice capture or transcription in progress (the quick window must stay open).
@@ -84,7 +90,10 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     if current.server_url.is_some() {
         windows::create_quick(app)?;
     }
-    tray::create(app)?;
+    // On Linux the tray needs libayatana-appindicator (loaded at runtime, it panics when missing):
+    // without it the app still works, it just quits when the main window is closed.
+    let tray_created = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tray::create(app).is_ok())).unwrap_or(false);
+    app.state::<AppState>().has_tray.store(tray_created, Ordering::SeqCst);
     shortcut::apply(app);
     Ok(())
 }
@@ -121,10 +130,10 @@ pub fn run() {
         .setup(|app| setup(app.handle()))
         .build(tauri::generate_context!())
         .expect("failed to start the Finance Chat desktop app")
-        .run(|_app, event| {
-            // Closing windows only hides them; the app quits from the tray menu.
+        .run(|app, event| {
+            // Closing windows only hides them; the app quits from the tray menu (or, without a tray, with the main window).
             if let RunEvent::ExitRequested { api, code, .. } = event {
-                if code.is_none() {
+                if code.is_none() && app.state::<AppState>().has_tray() {
                     api.prevent_exit();
                 }
             }

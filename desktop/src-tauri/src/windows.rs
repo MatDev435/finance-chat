@@ -2,6 +2,11 @@
 //! summoned by the global shortcut) and the app settings. Main and quick start on a
 //! bundled loader page that checks the server and then opens the Finance Chat site.
 
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::thread;
+use std::time::{Duration, Instant};
+
 use serde_json::json;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window, WindowEvent};
 
@@ -14,6 +19,14 @@ pub const SETTINGS: &str = "settings";
 pub const QUICK_WIDTH: f64 = 640.0;
 pub const QUICK_MIN_HEIGHT: f64 = 120.0;
 pub const QUICK_MAX_HEIGHT: f64 = 640.0;
+
+/// Focus of the quick window flaps right after it appears (WebKitGTK focus moving into the web view):
+/// it only hides when it is still unfocused after a short pause, and never right after being shown.
+const BLUR_SETTLE: Duration = Duration::from_millis(250);
+const SHOW_GRACE: Duration = Duration::from_millis(600);
+static QUICK_FOCUSED: AtomicBool = AtomicBool::new(false);
+static QUICK_FOCUS_EVENTS: AtomicU64 = AtomicU64::new(0);
+static QUICK_SHOWN_AT: Mutex<Option<Instant>> = Mutex::new(None);
 
 pub fn create_main(app: &AppHandle, visible: bool) -> tauri::Result<WebviewWindow> {
     WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
@@ -29,7 +42,9 @@ pub fn create_quick(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         // The window title is what screen readers announce when it appears.
         .title("Registro rápido — Finance Chat")
         .inner_size(QUICK_WIDTH, 168.0)
-        .resizable(false)
+        // Resizable so the height can follow the content (GTK ignores set_size on fixed-size windows);
+        // without decorations there is nothing for the user to drag.
+        .resizable(true)
         .maximizable(false)
         .minimizable(false)
         .decorations(false)
@@ -77,8 +92,19 @@ pub fn show_quick(app: &AppHandle, mode: &str) {
         return;
     }
     if let Some(window) = app.get_webview_window(QUICK).or_else(|| create_quick(app).ok()) {
+        if let Ok(mut shown) = QUICK_SHOWN_AT.lock() {
+            *shown = Some(Instant::now());
+        }
         let _ = window.show();
         let _ = window.set_focus();
+        // Some window managers ignore a focus request made before the window is mapped: ask again shortly after.
+        let again = window.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(120));
+            if again.is_visible().unwrap_or(false) {
+                let _ = again.set_focus();
+            }
+        });
         let _ = app.emit_to(QUICK, "quick://shown", json!({ "mode": mode }));
     }
 }
@@ -107,15 +133,33 @@ pub fn resize_quick(app: &AppHandle, height: f64) {
 /// except while voice is being captured or transcribed.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     match event {
-        WindowEvent::CloseRequested { api, .. } if window.label() == MAIN || window.label() == QUICK => {
+        WindowEvent::CloseRequested { api, .. } if window.label() == QUICK => {
             api.prevent_close();
             let _ = window.hide();
         }
-        WindowEvent::Focused(false) if window.label() == QUICK => {
-            let busy = window.app_handle().state::<AppState>().voice_busy();
-            if !busy {
+        WindowEvent::CloseRequested { api, .. } if window.label() == MAIN => {
+            if window.app_handle().state::<AppState>().has_tray() {
+                api.prevent_close();
                 let _ = window.hide();
+            } else {
+                window.app_handle().exit(0);
             }
+        }
+        WindowEvent::Focused(focused) if window.label() == QUICK => {
+            QUICK_FOCUSED.store(*focused, Ordering::SeqCst);
+            let event = QUICK_FOCUS_EVENTS.fetch_add(1, Ordering::SeqCst) + 1;
+            if *focused {
+                return;
+            }
+            let app = window.app_handle().clone();
+            thread::spawn(move || {
+                thread::sleep(BLUR_SETTLE);
+                let unchanged = QUICK_FOCUS_EVENTS.load(Ordering::SeqCst) == event && !QUICK_FOCUSED.load(Ordering::SeqCst);
+                let settled = QUICK_SHOWN_AT.lock().ok().and_then(|shown| *shown).map(|shown| shown.elapsed() >= SHOW_GRACE).unwrap_or(true);
+                if unchanged && settled && !app.state::<AppState>().voice_busy() {
+                    hide_quick(&app);
+                }
+            });
         }
         _ => {}
     }

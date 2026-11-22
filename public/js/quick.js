@@ -469,9 +469,17 @@ function openMain(accountId) {
 /** The app shows the window (shortcut tap or hold): start clean if it was left long ago, focus the field. */
 function onShown(payload) {
   cancelAutoHide();
-  if (Date.now() - state.lastActivity > STALE_MS && !pendingPreview()) {
+  // Signed out (or not connected) when it was loaded: the user may have signed in since, in the main window.
+  if (root.dataset.state === 'signed-out') {
+    window.location.reload();
+    return;
+  }
+  if (root.dataset.state === 'ready' && Date.now() - state.lastActivity > STALE_MS && !pendingPreview()) {
     clearExchange();
-    if (payload?.mode !== 'voice') setStatus('');
+    if (payload?.mode !== 'voice') {
+      setStatus('');
+      setStatusAction(null);
+    }
   }
   input.focus({ preventScroll: true });
   reportSize();
