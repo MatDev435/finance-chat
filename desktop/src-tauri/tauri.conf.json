@@ -11,7 +11,9 @@
     "windows": [],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost",
-      "capabilities": ["local"]
+      "capabilities": [
+        "local"
+      ]
     }
   },
   "bundle": {
@@ -28,7 +30,16 @@
       "icons/icon.ico"
     ],
     "linux": {
-      "deb": { "depends": ["libayatana-appindicator3-1"] }
+      "deb": {
+        "depends": [
+          "libasound2t64 | libasound2"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "alsa-lib"
+        ]
+      }
     }
   }
 }
