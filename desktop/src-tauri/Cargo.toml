@@ -1,6 +1,6 @@
 [package]
 name = "finance-chat-desktop"
-version = "0.2.0"
+version = "0.2.1"
 description = "Finance Chat desktop app: system tray, global shortcut for quick entry and local voice transcription."
 edition = "2021"
 rust-version = "1.90"

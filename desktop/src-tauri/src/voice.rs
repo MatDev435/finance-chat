@@ -26,10 +26,6 @@ use crate::{audio, windows, AppState};
 
 /// A recording stops by itself after this long (the server accepts up to 90 s).
 const MAX_RECORDING: Duration = Duration::from_secs(60);
-/// Shorter recordings (after trimming the silence) are treated as "nothing said".
-const MIN_SPEECH_SECONDS: f32 = 0.35;
-/// Below this loudness (RMS) the recording is treated as silence (and never uploaded).
-const SILENCE_RMS: f32 = 0.003;
 
 #[derive(Default)]
 pub struct Voice {
@@ -121,13 +117,14 @@ fn start(app: &AppHandle) {
         match captured {
             Err(message) => fail(&app, &message),
             Ok((mono, rate)) => {
-                let samples = audio::trim_silence(&audio::resample(&mono, rate, audio::SPEECH_RATE), audio::SPEECH_RATE);
-                let seconds = samples.len() as f32 / audio::SPEECH_RATE as f32;
-                if seconds < MIN_SPEECH_SECONDS || audio::rms(&samples) < SILENCE_RMS {
-                    emit(&app, json!({ "state": "done", "text": "" }));
-                } else {
-                    let wav = audio::encode_wav(&samples);
-                    emit(&app, json!({ "state": "audio", "wav": audio::base64(&wav), "durationMs": (seconds * 1000.0).round() as u64 }));
+                match audio::prepare_speech(&audio::resample(&mono, rate, audio::SPEECH_RATE)) {
+                    Ok(samples) => {
+                        let seconds = samples.len() as f32 / audio::SPEECH_RATE as f32;
+                        let wav = audio::encode_wav(&samples);
+                        emit(&app, json!({ "state": "audio", "wav": audio::base64(&wav), "durationMs": (seconds * 1000.0).round() as u64 }));
+                    }
+                    Err(audio::NoSpeech::NoSignal) => emit(&app, json!({ "state": "no-signal" })),
+                    Err(audio::NoSpeech::TooShort) => emit(&app, json!({ "state": "too-short" })),
                 }
             }
         }

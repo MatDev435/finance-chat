@@ -429,11 +429,19 @@ function onVoiceState(payload) {
     announce('Ouvindo.');
   } else if (voiceState === 'audio') {
     transcribe(payload);
+  } else if (voiceState === 'no-signal') {
+    // No sound at all reached the app (on Windows: usually the microphone privacy setting).
+    const message = 'Não chegou som do microfone. Confira se o microfone certo está selecionado e se o Windows permite que apps da área de trabalho usem o microfone (Configurações → Privacidade e segurança → Microfone).';
+    setStatus(message, 'error');
+    announce('Não chegou som do microfone. Confira o microfone e a permissão do sistema.');
+  } else if (voiceState === 'too-short') {
+    setStatus(`Gravação curta demais. Segure ${shortcutLabel(state.shortcut)} enquanto fala e solte no fim.`, 'error');
+    announce('Gravação curta demais.');
   } else if (voiceState === 'done') {
     const text = String(payload.text || '').trim();
     if (!text) {
-      setStatus('Não entendi nenhuma fala. Tente de novo.', 'error');
-      announce('Não entendi nenhuma fala.');
+      setStatus('A transcrição não reconheceu nenhuma fala. Fale mais perto do microfone e tente de novo.', 'error');
+      announce('Nenhuma fala reconhecida.');
       return;
     }
     input.value = mergeTranscript(input.value, text).slice(0, input.maxLength);
