@@ -61,7 +61,7 @@ O endereço do servidor Actual é informado pelo usuário, então o Finance Chat
 
 - O app (Tauri) abre o site configurado; sessões, CSRF e CSP continuam do servidor. O site só pode chamar um conjunto pequeno de comandos (janela rápida, abrir janelas, voz, resumo das configurações), concedido em tempo de execução apenas à origem configurada. Configurações e downloads de modelos ficam restritos às páginas embutidas do app. Detalhes em [DESKTOP.md](DESKTOP.md#segurança).
 - A CSP do servidor só acrescenta os endereços do IPC do Tauri (`ipc:` e `http://ipc.localhost`) ao `connect-src`, necessários quando o site roda dentro do app.
-- A voz é transcrita no próprio computador (whisper.cpp); o áudio nunca é enviado a servidores.
+- A voz gravada pelo app é enviada ao servidor do Finance Chat (`POST /api/voice/transcribe`, sessão obrigatória, WAV de até 4 MB) e repassada à OpenAI com a chave do modo IA do usuário. O áudio não é guardado nem registrado em log; só o consumo (duração, tokens e custo) vai para `ai_usage`.
 - Os instaladores (`/downloads/<nome>`) exigem sessão e só servem arquivos comuns de `DESKTOP_DIR` com nome e extensão de instalador (sem links simbólicos, subpastas ou `..`). O SHA-256 de cada arquivo aparece nas configurações para conferência.
 
 ## Dados locais

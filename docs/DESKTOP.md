@@ -1,14 +1,14 @@
 # App para computador (Tauri 2)
 
-O app para computador (`desktop/`) é uma casca leve em volta do mesmo site do Finance Chat. Ele acrescenta três coisas que um PWA não consegue: ficar na bandeja do sistema, um **atalho global** para o registro rápido e **voz transcrita no computador**. Sessões, prévias, confirmações, desfazer e histórico continuam exatamente como no navegador. Como compilar e distribuir: [desktop/README.md](../desktop/README.md).
+O app para computador (`desktop/`) é uma casca leve em volta do mesmo site do Finance Chat. Ele acrescenta três coisas que um PWA não consegue: ficar na bandeja do sistema, um **atalho global** para o registro rápido e **ditado por voz** (segurar o atalho e falar). Sessões, prévias, confirmações, desfazer e histórico continuam exatamente como no navegador. Como compilar e distribuir: [desktop/README.md](../desktop/README.md).
 
 ## Por que Tauri
 
 - Usa o navegador embutido do sistema (WebView2 no Windows, WKWebView no macOS, WebKitGTK no Linux): instaladores de poucos MB e pouco uso de memória, ao contrário do Electron, que leva um Chromium inteiro.
 - Bandeja, atalho global, instância única e início com o sistema são plugins oficiais.
-- O lado nativo é Rust, onde a captura do microfone e o whisper.cpp rodam bem.
+- O lado nativo é Rust, onde a captura do microfone roda bem.
 
-A Web Speech API **não** é usada no app: nas webviews embutidas ela não existe ou não funciona. O site continua usando a Web Speech API nos navegadores.
+A Web Speech API **não** é usada no app: nas webviews embutidas (e no Electron) ela não existe ou não funciona. O site continua usando a Web Speech API nos navegadores.
 
 ## Janelas
 
@@ -16,7 +16,7 @@ A Web Speech API **não** é usada no app: nas webviews embutidas ela não exist
 | --- | --- |
 | Principal | O site do Finance Chat. Fechar esconde na bandeja; sair pelo menu da bandeja. |
 | Registro rápido | A página `/quick` do site, numa janela sem moldura, sempre por cima e sem ícone na barra de tarefas. A altura acompanha o conteúdo. Esconde com Esc, ao perder o foco ou depois de um registro bem-sucedido. |
-| Configurações do app | Página embutida: endereço do servidor, atalho, modelo de voz, sons, início com o sistema. |
+| Configurações do app | Página embutida: endereço do servidor, atalho, sons, início com o sistema. |
 
 As janelas principal e rápida começam numa página embutida que confere o servidor (`GET /health`, feito pelo Rust) e então abre o site. Na primeira execução, ela pede o endereço. Servidor fora do ar: mensagem acessível com **Tentar de novo**.
 
@@ -49,27 +49,11 @@ Alt+Espaço pressionado ─┬─ solto em menos de 280 ms → toque
 
 - **Captura:** microfone padrão (cpal), numa thread dedicada, até soltar o atalho ou clicar de novo no microfone. O limite é de 60 s.
 - **Sons:** tons gerados na hora, sem arquivos: dois tons subindo quando o microfone **começa a ouvir** (é a hora de falar), descendo quando para, um tom grave em erros. Os sons podem ser desligados.
-- **Transcrição:** whisper.cpp (whisper-rs) em português.
-  - **Velocidade:** o whisper.cpp é compilado para uma base portátil de x86-64 com AVX2/FMA (`GGML_NATIVE=OFF` em `src-tauri/.cargo/config.toml`). Antes, o build se otimizava para a máquina do CI e, no Windows, saía sem AVX, o que deixava a transcrição muito lenta.
-  - A janela do codificador acompanha o tamanho do áudio (`audio_ctx`) em vez dos 30 s fixos, e a atenção usa flash attention.
-  - Medido aqui com frases de cerca de 4 s, incluindo carregar o modelo: Pequeno de cerca de 3,6 s para cerca de 0,9 s; Básico de cerca de 1,1 s para cerca de 0,4 s.
-  - **Memória:** o modelo (150 a 500 MB) começa a carregar assim que a gravação começa, em paralelo com a fala, e é liberado depois de um tempo sem uso: 10 minutos por padrão, configurável (5, 10, 30, 60 minutos ou sempre).
-  - Medido aqui: 173 MB antes, cerca de 750 MB durante e logo após a transcrição, e 200 MB depois da liberação.
-  - Silêncio ou falas muito curtas nem chegam ao Whisper, que costuma inventar texto no silêncio.
-  - Anotações como "[Música]" e alucinações conhecidas ("Legendas pela comunidade Amara.org") são removidas.
-  - O silêncio antes e depois da fala é cortado antes do Whisper; gravações que começam ou terminam em silêncio são as que mais o fazem inventar texto.
-  - O prompt inicial é uma lista de palavras do domínio. Uma frase de exemplo no prompt foi copiada para a transcrição nos testes.
-  - Com áudio pouco claro, o Whisper às vezes repete a lista do prompt ("Gastei, paguei, recebi…"). Esse eco é removido, e a pessoa vê só o que foi de fato reconhecido.
-  - Do áudio gravado, só é descartado o trecho do som de início (160 ms): cortar o começo da primeira palavra faz o Whisper adivinhá-la.
-- **Modelos:** "Básico" (base, cerca de 150 MB) ou "Pequeno" (small, cerca de 490 MB, recomendado).
-  - São baixados uma vez do repositório oficial do whisper.cpp no Hugging Face, com progresso.
-  - O download usa um arquivo `.part` e verificação de tamanho.
-  - Ficam na pasta de dados do app.
-- **Resultado nos testes,** com voz sintetizada (espeak-ng) e o modelo small:
-  - "Gastei 40 reais no mercado, categoria, alimentação."
-  - "Quanto gastei com transporte, nos últimos três meses, por mês."
-  - O parser aceita a pontuação típica de textos ditados.
-- O áudio **nunca sai do computador**.
+- **Áudio enviado:** 16 kHz, mono, WAV de 16 bits, com o silêncio antes e depois da fala cortado (cerca de 32 KB por segundo). Gravações silenciosas ou curtas demais nem são enviadas. Do começo, só é descartado o trecho do som de início (160 ms).
+- **Transcrição:** pelo servidor do Finance Chat, com a OpenAI (`gpt-transcribe`, idioma português) e a **chave do modo IA** do usuário. É preciso ativar a IA nas configurações do site. A janela rápida envia o áudio para `POST /api/voice/transcribe`; o servidor repassa à OpenAI, devolve o texto e **não guarda o áudio**.
+- **Custo:** a OpenAI cobra o `gpt-transcribe` por minuto (US$ 0,0045 por minuto na página oficial de preços, em 22/11/2026), cerca de US$ 0,0004 por frase de 5 s. Cada transcrição é registrada no consumo da IA, com a duração e o custo estimado, e aparece numa linha própria ("Transcrição de voz") nas configurações do site.
+- **Por que não local:** a primeira versão transcrevia no computador com o whisper.cpp, mas, nos testes reais, a espera ficou longa demais para o uso no dia a dia, e o modelo ocupava centenas de MB de memória. O `gpt-4o-mini-transcribe` (mais barato) foi descartado porque a OpenAI o descontinuou: ele deixa de funcionar em 26/02/2027.
+- O parser aceita a pontuação típica de textos ditados.
 
 ## Acessibilidade
 
@@ -107,4 +91,4 @@ Requisito do projeto em todas as janelas:
 - Linux: a bandeja precisa da `libayatana-appindicator3` (dependência do pacote `.deb`). Sem ela, o app funciona sem bandeja, e fechar a janela principal encerra o app.
 - Sem assinatura de código, o Windows e o macOS mostram avisos na instalação.
 - Sem atualização automática: novas versões são baixadas pelas configurações do site.
-- O desempenho do Whisper depende do processador: com o build atual, cerca de 1 s por frase curta no modelo Pequeno num processador comum. Processadores sem AVX2 (anteriores a cerca de 2013) não são suportados.
+- A voz precisa de internet e do modo IA ativado com a chave da OpenAI (cada transcrição tem um custo pequeno, registrado nas configurações do site).

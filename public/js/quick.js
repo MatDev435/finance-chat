@@ -427,9 +427,8 @@ function onVoiceState(payload) {
     cancelAutoHide();
     setStatus(`Ouvindo... solte ${shortcutLabel(state.shortcut)} (ou clique no microfone) para transcrever.`, 'recording');
     announce('Ouvindo.');
-  } else if (voiceState === 'transcribing') {
-    setStatus('Transcrevendo no seu computador...');
-    announce('Transcrevendo.');
+  } else if (voiceState === 'audio') {
+    transcribe(payload);
   } else if (voiceState === 'done') {
     const text = String(payload.text || '').trim();
     if (!text) {
@@ -440,18 +439,36 @@ function onVoiceState(payload) {
     input.value = mergeTranscript(input.value, text).slice(0, input.maxLength);
     setStatus('Pronto. Revise o texto e pressione Enter para enviar.');
     // The transcript is read back so screen reader users can check it before sending.
-    announce(`Texto transcrito: ${text}. Revise e pressione Enter para enviar.`);
+    announce(`Texto transcrito: ${text.replace(/[.!?]+$/, '')}. Revise e pressione Enter para enviar.`);
     input.focus({ preventScroll: true });
     input.setSelectionRange(input.value.length, input.value.length);
-  } else if (voiceState === 'model-missing') {
-    setStatus('Para usar a voz, baixe o modelo de reconhecimento nas configurações do app.', 'error');
-    setStatusAction('Abrir as configurações do app', () => invoke('open_settings').catch(() => {}));
-    announce('O modelo de voz ainda não foi baixado.');
   } else if (voiceState === 'error') {
     setStatus(payload.message || 'Não foi possível usar a voz agora.', 'error');
     announce(payload.message || 'Não foi possível usar a voz agora.');
   } else {
     setStatus('');
+  }
+}
+
+/** base64 (from the app) → bytes for the upload. */
+function bytesFrom(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+/** The app recorded a WAV: the server transcribes it (OpenAI, the user's AI key) and the text fills the field. */
+async function transcribe(payload) {
+  setStatus('Transcrevendo...');
+  announce('Transcrevendo.');
+  try {
+    const result = await api('POST', '/api/voice/transcribe', bytesFrom(String(payload.wav || '')), 'audio/wav');
+    onVoiceState({ state: 'done', text: result.text });
+  } catch (error) {
+    if (error.status === 401) return; // signed out: handled by onSessionExpired
+    onVoiceState({ state: 'error', message: error.message });
+    if (error.code === 'AI_DISABLED' || error.code === 'AI_KEY_UNREADABLE') setStatusAction('Abrir o Finance Chat', () => openMain());
   }
 }
 

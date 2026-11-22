@@ -109,7 +109,7 @@ HTML, CSS e JavaScript (módulos ES nativos), sem framework e sem build.
 
 ## App para computador (`desktop/`)
 
-App Tauri 2 que abre este mesmo site, com bandeja, atalho global para o registro rápido e voz transcrita localmente (Whisper). Detalhes em [DESKTOP.md](DESKTOP.md).
+App Tauri 2 que abre este mesmo site, com bandeja, atalho global para o registro rápido e ditado por voz (o áudio é transcrito pelo servidor com a OpenAI). Detalhes em [DESKTOP.md](DESKTOP.md).
 
 ## Testes (`test/`)
 

@@ -8,7 +8,7 @@ use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
-use crate::settings::{self, Settings, KEEP_MODEL_MINUTES, SHORTCUTS};
+use crate::settings::{self, Settings, SHORTCUTS};
 use crate::{shortcut, windows, AppState};
 
 /* ---------- Site (remote) and local pages ---------- */
@@ -123,32 +123,12 @@ pub struct Choice {
 }
 
 #[derive(Serialize)]
-pub struct KeepOption {
-    value: u32,
-    label: String,
-}
-
-fn keep_label(minutes: u32) -> String {
-    match minutes {
-        0 => "Sempre (resposta mais rápida, mais memória)".into(),
-        60 => "1 hora".into(),
-        10 => "10 minutos (recomendado)".into(),
-        other => format!("{other} minutos"),
-    }
-}
-
-#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsView {
     server_url: Option<String>,
     shortcut: String,
     shortcuts: Vec<Choice>,
     shortcut_error: Option<String>,
-    voice_model: String,
-    models: Vec<crate::voice::ModelInfo>,
-    voice_available: bool,
-    keep_model_minutes: u32,
-    keep_model_options: Vec<KeepOption>,
     sounds: bool,
     autostart: bool,
     version: String,
@@ -161,28 +141,12 @@ pub fn get_settings(app: AppHandle) -> SettingsView {
     SettingsView {
         shortcuts: SHORTCUTS.iter().map(|value| Choice { value: (*value).into(), label: shortcut::label(value) }).collect(),
         shortcut_error: state.shortcut_error.lock().ok().and_then(|error| error.clone()),
-        models: crate::voice::models(&app),
-        voice_available: crate::voice::AVAILABLE,
-        keep_model_minutes: current.keep_model_minutes,
-        keep_model_options: KEEP_MODEL_MINUTES.iter().map(|value| KeepOption { value: *value, label: keep_label(*value) }).collect(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
         server_url: current.server_url,
         shortcut: current.shortcut,
-        voice_model: current.voice_model,
         sounds: current.sounds,
     }
-}
-
-#[tauri::command]
-pub async fn download_model(app: AppHandle, name: String) -> Result<(), String> {
-    crate::model::download(&app, &name).await
-}
-
-#[tauri::command]
-pub fn delete_model(app: AppHandle, name: String) -> Result<(), String> {
-    crate::voice::unload();
-    crate::model::delete(&app, &name)
 }
 
 #[derive(Deserialize)]
@@ -190,9 +154,7 @@ pub fn delete_model(app: AppHandle, name: String) -> Result<(), String> {
 pub struct SettingsInput {
     server_url: String,
     shortcut: String,
-    voice_model: String,
     sounds: bool,
-    keep_model_minutes: u32,
     autostart: bool,
 }
 
@@ -210,21 +172,9 @@ pub fn save_settings(app: AppHandle, input: SettingsInput) -> Result<SaveResult,
     if !SHORTCUTS.contains(&input.shortcut.as_str()) {
         return Err("Escolha um dos atalhos da lista.".into());
     }
-    if !settings::MODELS.contains(&input.voice_model.as_str()) {
-        return Err("Escolha um dos modelos de voz da lista.".into());
-    }
     let state = app.state::<AppState>();
     let previous = state.settings.lock().map(|settings| settings.clone()).unwrap_or_default();
-    if !KEEP_MODEL_MINUTES.contains(&input.keep_model_minutes) {
-        return Err("Escolha um dos tempos da lista.".into());
-    }
-    let next = Settings {
-        server_url: Some(server_url),
-        shortcut: input.shortcut,
-        voice_model: input.voice_model,
-        sounds: input.sounds,
-        keep_model_minutes: input.keep_model_minutes,
-    };
+    let next = Settings { server_url: Some(server_url), shortcut: input.shortcut, sounds: input.sounds };
     settings::save(&app, &next)?;
     if let Ok(mut current) = state.settings.lock() {
         *current = next.clone();
@@ -236,9 +186,6 @@ pub fn save_settings(app: AppHandle, input: SettingsInput) -> Result<SaveResult,
     }
     if next.shortcut != previous.shortcut {
         shortcut::apply(&app);
-    }
-    if next.voice_model != previous.voice_model {
-        crate::voice::unload();
     }
     let restarting = next.server_url != previous.server_url;
     if restarting {

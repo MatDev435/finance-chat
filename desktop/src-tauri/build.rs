@@ -12,8 +12,6 @@ const COMMANDS: &[&str] = &[
     "check_server",
     "get_settings",
     "save_settings",
-    "download_model",
-    "delete_model",
 ];
 
 fn main() {

@@ -1,6 +1,6 @@
 {
   "name": "finance-chat-desktop",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "Finance Chat desktop app (Tauri 2): system tray, global shortcut for quick entry and local voice transcription.",
   "type": "module",
