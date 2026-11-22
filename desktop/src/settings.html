@@ -28,16 +28,11 @@
         <p class="status error" id="shortcut-error" role="alert" hidden></p>
       </fieldset>
 
-      <fieldset id="voice" hidden>
-        <legend>Voz (transcrição no computador)</legend>
-        <p class="hint">O áudio é transcrito pelo Whisper no próprio computador e nunca é enviado ao servidor. Baixe um modelo uma vez para usar a voz.</p>
-        <fieldset class="models">
-          <legend>Modelo de reconhecimento de voz</legend>
-          <div id="models"></div>
-        </fieldset>
+      <fieldset>
+        <legend>Voz</legend>
+        <p class="hint">Segure o atalho, fale e solte: o áudio vai para o seu Finance Chat, que o transcreve com a OpenAI usando a chave cadastrada no modo IA do site (é preciso ativar a IA lá). O custo de cada transcrição aparece no consumo da IA, nas configurações do site. O áudio não é guardado.</p>
         <label class="check"><input type="checkbox" id="sounds"> Tocar um som quando a gravação começar e terminar</label>
       </fieldset>
-      <p class="hint" id="voice-unavailable" hidden>Esta versão do app foi gerada sem reconhecimento de voz.</p>
 
       <fieldset>
         <legend>Sistema</legend>

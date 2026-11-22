@@ -30,6 +30,4 @@ permissions = [
   "allow-check-server",
   "allow-get-settings",
   "allow-save-settings",
-  "allow-download-model",
-  "allow-delete-model",
 ]

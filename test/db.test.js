@@ -78,3 +78,16 @@ test('database file is created with owner-only permissions and WAL mode', { skip
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('migration 3 keeps the recorded AI usage and accepts voice transcriptions', () => {
+  const db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
+  migrate(db, MIGRATIONS.slice(0, 2));
+  const userId = db.prepare("INSERT INTO users (username, password_hash, created_at) VALUES ('ana', 'x', 1)").run().lastInsertRowid;
+  db.prepare("INSERT INTO ai_usage (user_id, created_at, local_month, purpose, model, outcome, usage_known, cost_nano_usd) VALUES (?, 1, '2026-11', 'chat', 'gpt-6-luna', 'ok', 1, 1234)").run(userId);
+  migrate(db);
+  assert.deepEqual(db.prepare('SELECT purpose, cost_nano_usd, audio_ms FROM ai_usage').get(), { purpose: 'chat', cost_nano_usd: 1234, audio_ms: null });
+  db.prepare("INSERT INTO ai_usage (user_id, created_at, local_month, purpose, model, outcome, usage_known, audio_ms) VALUES (?, 2, '2026-11', 'transcription', 'gpt-transcribe', 'ok', 1, 4000)").run(userId);
+  assert.throws(() => db.prepare("INSERT INTO ai_usage (user_id, created_at, local_month, purpose, model, outcome, usage_known) VALUES (?, 3, '2026-11', 'other', 'x', 'ok', 0)").run(userId));
+  assert.equal(db.prepare("SELECT COUNT(*) FROM sqlite_master WHERE name = 'ai_usage_user_month'").pluck().get(), 1);
+});

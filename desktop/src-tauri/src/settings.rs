@@ -9,9 +9,6 @@ use tauri::{AppHandle, Manager};
 /// Global shortcuts offered in the settings (a fixed list keeps them valid on every OS).
 pub const SHORTCUTS: &[&str] = &["Alt+Space", "Control+Shift+Space", "Control+Alt+Space", "Super+Shift+Space"];
 pub const DEFAULT_SHORTCUT: &str = "Alt+Space";
-/// Whisper models offered for download (multilingual ggml files of whisper.cpp).
-pub const MODELS: &[&str] = &["base", "small"];
-pub const DEFAULT_MODEL: &str = "small";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -19,14 +16,13 @@ pub struct Settings {
     /// Origin of the Finance Chat server ("https://finance.example.com"), or None before the first setup.
     pub server_url: Option<String>,
     pub shortcut: String,
-    pub voice_model: String,
     /// Sound cues when voice capture starts and stops.
     pub sounds: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { server_url: None, shortcut: DEFAULT_SHORTCUT.into(), voice_model: DEFAULT_MODEL.into(), sounds: true }
+        Self { server_url: None, shortcut: DEFAULT_SHORTCUT.into(), sounds: true }
     }
 }
 
@@ -36,9 +32,6 @@ impl Settings {
         self.server_url = self.server_url.as_deref().and_then(|value| normalize_server_url(value).ok());
         if !SHORTCUTS.contains(&self.shortcut.as_str()) {
             self.shortcut = DEFAULT_SHORTCUT.into();
-        }
-        if !MODELS.contains(&self.voice_model.as_str()) {
-            self.voice_model = DEFAULT_MODEL.into();
         }
         self
     }
@@ -104,9 +97,10 @@ mod tests {
 
     #[test]
     fn unknown_values_fall_back_to_defaults() {
-        let settings = Settings { server_url: Some("not a url ::".into()), shortcut: "F13".into(), voice_model: "huge".into(), sounds: false }.sanitized();
+        let settings = Settings { server_url: Some("not a url ::".into()), shortcut: "F13".into(), sounds: false }.sanitized();
         assert_eq!(settings, Settings { sounds: false, ..Settings::default() });
-        let parsed: Settings = serde_json::from_str(r#"{"serverUrl":"finance.example.com"}"#).unwrap();
+        // Files written by older versions (with the removed Whisper settings) still load.
+        let parsed: Settings = serde_json::from_str(r#"{"serverUrl":"finance.example.com","voiceModel":"small","keepModelMinutes":10}"#).unwrap();
         assert_eq!(parsed.sanitized().server_url.as_deref(), Some("https://finance.example.com"));
     }
 }

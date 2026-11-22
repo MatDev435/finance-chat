@@ -1,6 +1,6 @@
 [package]
 name = "finance-chat-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Finance Chat desktop app: system tray, global shortcut for quick entry and local voice transcription."
 edition = "2021"
 rust-version = "1.90"
@@ -19,20 +19,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2.5"
 cpal = "0.18"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
-futures-util = "0.3"
-tokio = { version = "1", features = ["fs", "io-util"] }
-whisper-rs = { version = "0.16", optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2.7"
 tauri-plugin-global-shortcut = "2.4"
 tauri-plugin-single-instance = "2.5"
-
-[features]
-default = ["whisper"]
-# Local speech recognition (whisper.cpp). Without it the app still works; voice capture reports that it is unavailable.
-whisper = ["dep:whisper-rs"]
 
 [profile.release]
 codegen-units = 1

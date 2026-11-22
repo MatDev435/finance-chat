@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { formatUsd, modelHint, monthLabel, usageRows } from './ai-format.js';
+import { formatUsd, modelHint, monthLabel, transcriptionText, usageRows } from './ai-format.js';
 
 /**
  * AI section of the settings: on/off switch (saved at once), OpenAI key and
@@ -70,6 +70,7 @@ export function createAiSettings({ section, onChange }) {
     'Tokens de entrada': '<path d="M12 4v16"/><path d="m6 14 6 6 6-6"/>',
     'Tokens de saída': '<path d="M12 20V4"/><path d="m6 10 6-6 6 6"/>',
     'Total de tokens': '<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/>',
+    'Transcrição de voz': '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/>',
     'Modelo selecionado': '<path d="M12 3c.6 4.6 3.4 7.4 8 8-4.6.6-7.4 3.4-8 8-.6-4.6-3.4-7.4-8-8 4.6-.6 7.4-3.4 8-8Z"/>',
   };
 
@@ -101,7 +102,10 @@ export function createAiSettings({ section, onChange }) {
       for (const [label, value] of usageRows(usage.currentMonth)) {
         if (label !== 'Custo estimado') usageRow(usageList, label, value, true);
       }
+      // Voice transcriptions of the desktop app (already included in the totals above).
+      if (usage.transcription?.total?.requests) usageRow(usageList, 'Transcrição de voz', transcriptionText(usage.transcription.currentMonth), true);
       for (const [label, value] of usageRows(usage.total)) usageRow(usageTotal, label === 'Custo estimado' ? 'Custo estimado acumulado' : label, value, false);
+      if (usage.transcription?.total?.requests) usageRow(usageTotal, 'Transcrição de voz', transcriptionText(usage.transcription.total), false);
     }
     usageRow(usageList, 'Modelo selecionado', current ? current.name : '—', true);
     usageNote.textContent = pricing ? `${defaultUsageNote} Tabela de preços de ${pricing.version.split('-').reverse().join('/')}.` : defaultUsageNote;

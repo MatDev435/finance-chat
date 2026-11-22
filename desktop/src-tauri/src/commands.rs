@@ -129,9 +129,6 @@ pub struct SettingsView {
     shortcut: String,
     shortcuts: Vec<Choice>,
     shortcut_error: Option<String>,
-    voice_model: String,
-    models: Vec<crate::voice::ModelInfo>,
-    voice_available: bool,
     sounds: bool,
     autostart: bool,
     version: String,
@@ -144,25 +141,12 @@ pub fn get_settings(app: AppHandle) -> SettingsView {
     SettingsView {
         shortcuts: SHORTCUTS.iter().map(|value| Choice { value: (*value).into(), label: shortcut::label(value) }).collect(),
         shortcut_error: state.shortcut_error.lock().ok().and_then(|error| error.clone()),
-        models: crate::voice::models(&app),
-        voice_available: crate::voice::AVAILABLE,
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
         server_url: current.server_url,
         shortcut: current.shortcut,
-        voice_model: current.voice_model,
         sounds: current.sounds,
     }
-}
-
-#[tauri::command]
-pub async fn download_model(app: AppHandle, name: String) -> Result<(), String> {
-    crate::model::download(&app, &name).await
-}
-
-#[tauri::command]
-pub fn delete_model(app: AppHandle, name: String) -> Result<(), String> {
-    crate::model::delete(&app, &name)
 }
 
 #[derive(Deserialize)]
@@ -170,7 +154,6 @@ pub fn delete_model(app: AppHandle, name: String) -> Result<(), String> {
 pub struct SettingsInput {
     server_url: String,
     shortcut: String,
-    voice_model: String,
     sounds: bool,
     autostart: bool,
 }
@@ -189,12 +172,9 @@ pub fn save_settings(app: AppHandle, input: SettingsInput) -> Result<SaveResult,
     if !SHORTCUTS.contains(&input.shortcut.as_str()) {
         return Err("Escolha um dos atalhos da lista.".into());
     }
-    if !settings::MODELS.contains(&input.voice_model.as_str()) {
-        return Err("Escolha um dos modelos de voz da lista.".into());
-    }
     let state = app.state::<AppState>();
     let previous = state.settings.lock().map(|settings| settings.clone()).unwrap_or_default();
-    let next = Settings { server_url: Some(server_url), shortcut: input.shortcut, voice_model: input.voice_model, sounds: input.sounds };
+    let next = Settings { server_url: Some(server_url), shortcut: input.shortcut, sounds: input.sounds };
     settings::save(&app, &next)?;
     if let Ok(mut current) = state.settings.lock() {
         *current = next.clone();

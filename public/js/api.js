@@ -23,11 +23,11 @@ export function onSessionExpired(handler) {
   sessionExpired = handler;
 }
 
-async function send(method, path, body) {
+async function send(method, path, body, contentType = 'application/json') {
   const init = { method, credentials: 'same-origin', headers: { Accept: 'application/json' } };
   if (method !== 'GET') {
-    init.headers['Content-Type'] = 'application/json';
-    init.body = JSON.stringify(body ?? {});
+    init.headers['Content-Type'] = contentType;
+    init.body = contentType === 'application/json' ? JSON.stringify(body ?? {}) : body;
   }
   let response;
   try {
@@ -49,9 +49,9 @@ export function refreshSession() {
   return refreshing;
 }
 
-export async function api(method, path, body) {
+export async function api(method, path, body, contentType) {
   try {
-    return await send(method, path, body);
+    return await send(method, path, body, contentType);
   } catch (error) {
     if (error.status !== 401 || path.startsWith('/api/auth/')) throw error;
     if (!(await refreshSession())) {
@@ -59,7 +59,7 @@ export async function api(method, path, body) {
       throw error;
     }
     try {
-      return await send(method, path, body);
+      return await send(method, path, body, contentType);
     } catch (retryError) {
       if (retryError.status === 401) sessionExpired();
       throw retryError;

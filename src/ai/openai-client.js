@@ -114,7 +114,7 @@ export function readOutput(data) {
 }
 
 export function createOpenAIClient({ fetch: fetchImpl = globalThis.fetch, baseUrl = OPENAI_BASE_URL, timeoutMs = OPENAI_TIMEOUT_MS } = {}) {
-  async function call(method, path, apiKey, body) {
+  async function call(method, path, apiKey, body, form) {
     const init = {
       method,
       headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
@@ -124,6 +124,8 @@ export function createOpenAIClient({ fetch: fetchImpl = globalThis.fetch, baseUr
       init.headers['Content-Type'] = 'application/json';
       init.body = JSON.stringify(body);
     }
+    // multipart/form-data: fetch sets the Content-Type with the boundary.
+    if (form !== undefined) init.body = form;
     let response;
     let text;
     try {
@@ -153,6 +155,22 @@ export function createOpenAIClient({ fetch: fetchImpl = globalThis.fetch, baseUr
   return {
     /** POST /v1/responses. Resolves with the parsed JSON body; throws OpenAIError. */
     createResponse: ({ apiKey, body }) => call('POST', '/responses', apiKey, body),
+
+    /**
+     * POST /v1/audio/transcriptions (multipart). `audio` is a WAV Buffer. Resolves with
+     * { text, usage (raw, may be absent), requestId }; throws OpenAIError like the other calls.
+     */
+    async createTranscription({ apiKey, audio, model, languages = [], prompt }) {
+      const form = new FormData();
+      form.append('file', new Blob([audio], { type: 'audio/wav' }), 'fala.wav');
+      form.append('model', model);
+      for (const language of languages) form.append('languages[]', language);
+      if (prompt) form.append('prompt', prompt);
+      form.append('response_format', 'json');
+      const { data, requestId } = await call('POST', '/audio/transcriptions', apiKey, undefined, form);
+      if (typeof data.text !== 'string') throw new OpenAIError('AI_INVALID_OUTPUT', { requestId, maybeProcessed: true });
+      return { text: data.text, usage: data.usage ?? null, requestId };
+    },
 
     /** GET /v1/models: ids of the models this key can list. */
     async listModels({ apiKey }) {

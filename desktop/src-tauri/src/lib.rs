@@ -1,6 +1,7 @@
 //! Finance Chat desktop app (Tauri 2): it runs in the system tray, opens the Finance
 //! Chat site in its main window and a quick entry window with a global shortcut
-//! (tap to type, hold to speak), and transcribes the voice locally with Whisper.
+//! (tap to type, hold to speak), and records the voice for transcription by the Finance Chat
+//! server (OpenAI, with the user's own AI key).
 //!
 //! The site is the same one the browser uses (sessions, previews, confirmations and
 //! history do not change); the app adds only the window, shortcut and voice glue. The
@@ -9,7 +10,6 @@
 
 mod audio;
 mod commands;
-mod model;
 mod settings;
 mod shortcut;
 mod sound;
@@ -123,8 +123,6 @@ pub fn run() {
             commands::check_server,
             commands::get_settings,
             commands::save_settings,
-            commands::download_model,
-            commands::delete_model,
         ])
         .on_window_event(windows::on_window_event)
         .setup(|app| setup(app.handle()))

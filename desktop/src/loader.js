@@ -63,7 +63,7 @@ setup?.addEventListener('submit', async (event) => {
     const current = await invoke('get_settings');
     announce(setupStatus, 'Conectado! O app vai reiniciar para abrir o Finance Chat.', 'ok');
     await invoke('save_settings', {
-      input: { serverUrl: origin, shortcut: current.shortcut, voiceModel: current.voiceModel, sounds: current.sounds, autostart: current.autostart },
+      input: { serverUrl: origin, shortcut: current.shortcut, sounds: current.sounds, autostart: current.autostart },
     });
   } catch (error) {
     announce(setupStatus, String(error), 'error');

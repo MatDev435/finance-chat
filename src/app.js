@@ -10,6 +10,7 @@ import { createRateLimiter } from './rate-limit.js';
 import { createSearch } from './search.js';
 import { createSummary } from './summary.js';
 import { contentDisposition, createDesktopDownloads } from './desktop-downloads.js';
+import { createVoiceTranscription, readAudio } from './voice-transcription.js';
 import { currentLocalDate } from './transaction-mapping.js';
 import { createUndoStore } from './undo.js';
 import { ACCOUNT_ID_PATTERN, inputError, resolveConnectionInput } from './user-store.js';
@@ -59,6 +60,7 @@ const ERROR_STATUS = {
   AI_INVALID_PLAN: 422,
   AI_KEY_UNREADABLE: 409,
   AI_DISABLED: 409,
+  INVALID_AUDIO: 400,
   NO_DRAFT: 409,
 };
 
@@ -108,7 +110,9 @@ export function createApp({
     connectionTest: createRateLimiter({ limit: 10, windowMs: 5 * MINUTE }),
     aiTest: createRateLimiter({ limit: 10, windowMs: 5 * MINUTE }),
     aiChat: createRateLimiter({ limit: 40, windowMs: 10 * MINUTE }),
+    voice: createRateLimiter({ limit: 60, windowMs: 10 * MINUTE }),
   };
+  const voice = createVoiceTranscription({ openai, aiStore, log });
   const interpreter = createInterpreter({ client: openai, aiStore, log });
 
   function logOpenAI(error) {
@@ -290,6 +294,31 @@ export function createApp({
      * answer one request with the real Structured Outputs schema. The test
      * request is billed like any other and recorded with purpose "test".
      */
+    /** Desktop app: a WAV recorded by the app, transcribed with the user's OpenAI key. Nothing is stored but the usage. */
+    'POST /api/voice/transcribe': {
+      raw: true,
+      async handler(ctx) {
+        const userKey = `user:${ctx.user.id}`;
+        enforce(limiters.voice, userKey);
+        let credentials;
+        try {
+          credentials = aiStore.credentials(ctx.user.id);
+        } catch (error) {
+          if (error.code === 'SECRET_UNREADABLE') throw new HttpError(409, 'AI_KEY_UNREADABLE', 'Não foi possível ler a chave da OpenAI salva (a APP_SECRET mudou?). Informe a chave novamente.');
+          throw error;
+        }
+        if (!credentials) throw new HttpError(409, 'AI_DISABLED', 'Para usar a voz, ative a IA e cadastre a chave da OpenAI nas configurações do Finance Chat.');
+        const audio = await readAudio(ctx.request);
+        limiters.voice.hit(userKey);
+        try {
+          return sendJson(ctx.response, 200, { ok: true, ...(await voice.transcribe({ userId: ctx.user.id, credentials, audio })) });
+        } catch (error) {
+          logOpenAI(error);
+          throw error;
+        }
+      },
+    },
+
     'POST /api/ai/test': {
       async handler(ctx) {
         const userKey = `user:${ctx.user.id}`;
@@ -495,7 +524,7 @@ export function createApp({
           if (!session) throw new HttpError(401, 'AUTH_REQUIRED', 'Sua sessão expirou. Entre novamente.');
           ctx.user = session.user;
         }
-        if (request.method !== 'GET') ctx.body = await readJson(request);
+        if (request.method !== 'GET' && !route.raw) ctx.body = await readJson(request);
         return await route.handler(ctx);
       }
 

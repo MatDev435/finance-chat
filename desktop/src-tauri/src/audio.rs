@@ -1,8 +1,8 @@
-//! Pure audio helpers for the voice capture: mono mixdown, resampling to the
-//! 16 kHz that Whisper expects, loudness and transcript clean-up.
+//! Pure audio helpers for the voice capture: mono mixdown, resampling to 16 kHz,
+//! loudness, silence trimming and the WAV/base64 encoding sent to the server.
 
-/// Sample rate expected by Whisper.
-pub const WHISPER_RATE: u32 = 16_000;
+/// Sample rate of the recording sent for transcription (16 kHz is plenty for speech).
+pub const SPEECH_RATE: u32 = 16_000;
 
 /// Interleaved frames → mono (average of the channels).
 pub fn to_mono(interleaved: &[f32], channels: usize) -> Vec<f32> {
@@ -65,68 +65,40 @@ pub fn trim_silence(samples: &[f32], rate: u32) -> Vec<f32> {
     samples[start..end].to_vec()
 }
 
-/// Domain words given to Whisper as its initial prompt (a list, not sentences: Whisper copies
-/// sentences from the prompt into the transcript).
-pub const PROMPT_WORDS: &[&str] = &[
-    "Gastei", "paguei", "recebi", "reais", "mercado", "categoria", "alimentação", "transporte", "saúde", "últimos meses", "por mês",
-];
-
-/// With unclear audio Whisper may echo its prompt ("Gastei, paguei, recebi, reais, ..."): a leading
-/// run of two or more prompt words, in the prompt's order and separated by commas, is removed, so the
-/// user sees only what was actually recognized (and records again if needed).
-#[cfg_attr(not(feature = "whisper"), allow(dead_code))]
-pub fn strip_prompt_echo(text: &str) -> String {
-    let parts: Vec<&str> = text.split(',').collect();
-    let mut matched = 0;
-    for (part, word) in parts.iter().zip(PROMPT_WORDS) {
-        if part.trim().trim_end_matches('.').to_lowercase() == word.to_lowercase() {
-            matched += 1;
-        } else {
-            break;
-        }
+/// Mono samples at [`SPEECH_RATE`] → a 16-bit PCM WAV file (what the server accepts).
+pub fn encode_wav(samples: &[f32]) -> Vec<u8> {
+    let data_len = (samples.len() * 2) as u32;
+    let mut bytes = Vec::with_capacity(44 + data_len as usize);
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16u32.to_le_bytes());
+    bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
+    bytes.extend_from_slice(&SPEECH_RATE.to_le_bytes());
+    bytes.extend_from_slice(&(SPEECH_RATE * 2).to_le_bytes());
+    bytes.extend_from_slice(&2u16.to_le_bytes());
+    bytes.extend_from_slice(&16u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&data_len.to_le_bytes());
+    for sample in samples {
+        bytes.extend_from_slice(&((sample.clamp(-1.0, 1.0) * 32767.0).round() as i16).to_le_bytes());
     }
-    if matched < 2 {
-        return text.to_string();
-    }
-    let rest = parts[matched..].join(",").trim().to_string();
-    let mut characters = rest.chars();
-    match characters.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + characters.as_str(),
-        None => String::new(),
-    }
+    bytes
 }
 
-/// Phrases Whisper is known to "hear" in silence or noise (subtitles credits and the like).
-#[cfg_attr(not(feature = "whisper"), allow(dead_code))]
-const HALLUCINATIONS: &[&str] = &[
-    "legendas pela comunidade amara.org",
-    "legendas pela comunidade amara.org.",
-    "obrigado.",
-    "obrigada.",
-    "obrigado por assistir.",
-    "inscreva-se no canal.",
-    "tchau.",
-    "...",
-];
-
-#[cfg_attr(not(feature = "whisper"), allow(dead_code))]
-/// Joins the segments, drops annotations such as "[Música]" and known hallucinations.
-pub fn clean_transcript(raw: &str) -> String {
-    let mut text = String::with_capacity(raw.len());
-    let mut depth = 0usize;
-    for character in raw.chars() {
-        match character {
-            '[' => depth += 1,
-            ']' if depth > 0 => depth -= 1,
-            _ if depth == 0 => text.push(character),
-            _ => {}
-        }
+/// Standard base64 (with padding), to hand the WAV to the quick window in an event.
+pub fn base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let triple = (u32::from(chunk[0]) << 16) | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8) | u32::from(*chunk.get(2).unwrap_or(&0));
+        out.push(TABLE[(triple >> 18) as usize & 63] as char);
+        out.push(TABLE[(triple >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { TABLE[(triple >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { TABLE[triple as usize & 63] as char } else { '=' });
     }
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if HALLUCINATIONS.contains(&text.to_lowercase().as_str()) {
-        return String::new();
-    }
-    text
+    out
 }
 
 #[cfg(test)]
@@ -142,13 +114,13 @@ mod tests {
     #[test]
     fn resampling_keeps_the_duration_and_the_level() {
         let one_second = vec![0.25_f32; 48_000];
-        let output = resample(&one_second, 48_000, WHISPER_RATE);
+        let output = resample(&one_second, 48_000, SPEECH_RATE);
         assert_eq!(output.len(), 16_000);
         assert!(output.iter().all(|sample| (sample - 0.25).abs() < 1e-6));
         let up = resample(&[0.0, 1.0], 8_000, 16_000);
         assert_eq!(up.len(), 4);
         assert!((up[1] - 0.5).abs() < 1e-6);
-        assert_eq!(resample(&[], 44_100, WHISPER_RATE), Vec::<f32>::new());
+        assert_eq!(resample(&[], 44_100, SPEECH_RATE), Vec::<f32>::new());
         assert_eq!(resample(&[0.3; 10], 16_000, 16_000).len(), 10);
     }
 
@@ -173,19 +145,18 @@ mod tests {
     }
 
     #[test]
-    fn an_echo_of_the_prompt_is_removed() {
-        assert_eq!(strip_prompt_echo("Gastei, paguei, recebi, reais, no mercado, categoria, alimentação."), "No mercado, categoria, alimentação.");
-        assert_eq!(strip_prompt_echo("Gastei, paguei, recebi, reais, mercado, categoria, alimentação."), "");
-        assert_eq!(strip_prompt_echo("Gastei 40 reais no mercado, categoria, alimentação."), "Gastei 40 reais no mercado, categoria, alimentação.");
-        assert_eq!(strip_prompt_echo("Gastei, digo, paguei 30 no mercado"), "Gastei, digo, paguei 30 no mercado");
-    }
-
-    #[test]
-    fn transcripts_are_cleaned() {
-        assert_eq!(clean_transcript(" Gastei 40 reais  no mercado. [Música] "), "Gastei 40 reais no mercado.");
-        assert_eq!(clean_transcript("[BLANK_AUDIO]"), "");
-        assert_eq!(clean_transcript(" Legendas pela comunidade Amara.org "), "");
-        assert_eq!(clean_transcript("Obrigado."), "");
-        assert_eq!(clean_transcript("Obrigado pela ajuda, gastei 10 no café"), "Obrigado pela ajuda, gastei 10 no café");
+    fn wav_and_base64_encoding() {
+        let wav = encode_wav(&[0.0, 1.0, -1.0, 0.5]);
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(&wav[8..16], b"WAVEfmt ");
+        assert_eq!(u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]), 16_000);
+        assert_eq!(wav.len(), 44 + 8);
+        assert_eq!(i16::from_le_bytes([wav[46], wav[47]]), 32767);
+        assert_eq!(i16::from_le_bytes([wav[48], wav[49]]), -32767);
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+        assert_eq!(base64(&[255, 254, 253]), "//79");
     }
 }

@@ -1,13 +1,14 @@
-//! Voice capture and local transcription (push to talk).
+//! Voice capture (push to talk).
 //!
 //! Holding the global shortcut (or clicking the microphone in the quick window)
 //! starts a capture thread that owns the microphone stream; releasing it (or
-//! clicking again) stops the capture, and the same thread transcribes the audio
-//! with Whisper on this computer. The quick window follows every step through
-//! "voice://state" events (recording, transcribing, done, error, model-missing),
-//! which it shows and announces to screen readers; sound cues mark the start
-//! and the end of the recording. The text only fills the message field: nothing
-//! is sent without the user.
+//! clicking again) stops the capture. The recording is reduced to 16 kHz mono,
+//! the silence around the speech is trimmed, and the WAV goes to the quick
+//! window ("voice://state" with state "audio"), which uploads it to the Finance
+//! Chat server; the server transcribes it with OpenAI using the user's own AI
+//! key and records the cost. The quick window shows and announces every step;
+//! sound cues mark the start and the end of the recording. The text only fills
+//! the message field: nothing is sent to the chat without the user.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -21,17 +22,13 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::sound::{self, Cue};
-use crate::{audio, model, windows, AppState};
+use crate::{audio, windows, AppState};
 
-pub use crate::model::ModelInfo;
-
-/// Whether this build includes local speech recognition (the "whisper" feature).
-pub const AVAILABLE: bool = cfg!(feature = "whisper");
-/// A recording stops by itself after this long.
+/// A recording stops by itself after this long (the server accepts up to 90 s).
 const MAX_RECORDING: Duration = Duration::from_secs(60);
-/// Shorter recordings are treated as "nothing said".
+/// Shorter recordings (after trimming the silence) are treated as "nothing said".
 const MIN_SPEECH_SECONDS: f32 = 0.35;
-/// Below this loudness (RMS) the recording is treated as silence (Whisper invents text in silence).
+/// Below this loudness (RMS) the recording is treated as silence (and never uploaded).
 const SILENCE_RMS: f32 = 0.003;
 
 #[derive(Default)]
@@ -41,7 +38,7 @@ pub struct Voice {
 }
 
 impl Voice {
-    /// Recording or transcribing.
+    /// Recording (or preparing the audio).
     pub fn busy(&self) -> bool {
         self.busy.load(Ordering::SeqCst)
     }
@@ -57,17 +54,9 @@ impl Voice {
     }
 }
 
-pub fn models(app: &AppHandle) -> Vec<ModelInfo> {
-    model::list(app)
-}
-
-/// The selected model is downloaded (and this build has Whisper).
-pub fn ready(app: &AppHandle) -> bool {
-    AVAILABLE && model::exists(app, &current_model(app))
-}
-
-fn current_model(app: &AppHandle) -> String {
-    app.state::<AppState>().settings.lock().map(|settings| settings.voice_model.clone()).unwrap_or_default()
+/// Voice capture only needs a microphone (the transcription happens on the server).
+pub fn ready(_app: &AppHandle) -> bool {
+    true
 }
 
 fn sounds_enabled(app: &AppHandle) -> bool {
@@ -91,12 +80,12 @@ pub fn hold_start(app: &AppHandle) {
     start(app);
 }
 
-/// Shortcut released: stop listening and transcribe.
+/// Shortcut released: stop listening and hand the audio to the quick window.
 pub fn hold_end(app: &AppHandle) {
     app.state::<AppState>().voice.request_stop();
 }
 
-/// Microphone button of the quick window: start, or stop and transcribe.
+/// Microphone button of the quick window: start, or stop.
 pub fn toggle(app: &AppHandle) {
     let voice = &app.state::<AppState>().voice;
     if voice.recording() {
@@ -106,32 +95,17 @@ pub fn toggle(app: &AppHandle) {
     }
 }
 
-/// The quick page finished loading: tell it about a capture already in progress.
+/// The quick page finished loading: tell it about a recording already in progress.
 pub fn resend_state(app: &AppHandle) {
-    let voice = &app.state::<AppState>().voice;
-    if voice.recording() {
+    if app.state::<AppState>().voice.recording() {
         emit(app, json!({ "state": "recording" }));
-    } else if voice.busy() {
-        emit(app, json!({ "state": "transcribing" }));
     }
 }
 
 fn start(app: &AppHandle) {
     let state = app.state::<AppState>();
-    if !AVAILABLE {
-        fail(app, "Esta versão do app foi gerada sem reconhecimento de voz.");
-        return;
-    }
-    let name = current_model(app);
-    let Some(model_path) = model::path(app, &name).filter(|_| model::exists(app, &name)) else {
-        if sounds_enabled(app) {
-            sound::play(Cue::Error);
-        }
-        emit(app, json!({ "state": "model-missing" }));
-        return;
-    };
     if state.voice.busy.swap(true, Ordering::SeqCst) {
-        return; // already recording or transcribing
+        return; // already recording
     }
     let (stop_sender, stop_receiver) = mpsc::channel();
     if let Ok(mut stop) = state.voice.stop.lock() {
@@ -147,16 +121,13 @@ fn start(app: &AppHandle) {
         match captured {
             Err(message) => fail(&app, &message),
             Ok((mono, rate)) => {
-                emit(&app, json!({ "state": "transcribing" }));
-                let samples = audio::trim_silence(&audio::resample(&mono, rate, audio::WHISPER_RATE), audio::WHISPER_RATE);
-                let too_short = (samples.len() as f32) < audio::WHISPER_RATE as f32 * MIN_SPEECH_SECONDS;
-                if too_short || audio::rms(&samples) < SILENCE_RMS {
+                let samples = audio::trim_silence(&audio::resample(&mono, rate, audio::SPEECH_RATE), audio::SPEECH_RATE);
+                let seconds = samples.len() as f32 / audio::SPEECH_RATE as f32;
+                if seconds < MIN_SPEECH_SECONDS || audio::rms(&samples) < SILENCE_RMS {
                     emit(&app, json!({ "state": "done", "text": "" }));
                 } else {
-                    match transcribe(&model_path, &samples) {
-                        Ok(text) => emit(&app, json!({ "state": "done", "text": text })),
-                        Err(message) => fail(&app, &message),
-                    }
+                    let wav = audio::encode_wav(&samples);
+                    emit(&app, json!({ "state": "audio", "wav": audio::base64(&wav), "durationMs": (seconds * 1000.0).round() as u64 }));
                 }
             }
         }
@@ -199,7 +170,7 @@ fn capture(app: &AppHandle, stop: mpsc::Receiver<()>, sounds: bool) -> Result<(V
     let interleaved = std::mem::take(&mut *buffer.lock().map_err(|_| "Falha ao ler o áudio.".to_string())?);
     let mut mono = audio::to_mono(&interleaved, channels);
     if sounds {
-        // Exactly the cue: it means "speak now", and cutting into the first word makes Whisper guess it.
+        // Exactly the cue: it means "speak now", and cutting into the first word hurts the transcription.
         let skip = ((rate as f32) * Cue::Start.duration().as_secs_f32()) as usize;
         mono.drain(..skip.min(mono.len()));
     }
@@ -223,100 +194,4 @@ where
             None,
         )
         .map_err(|_| "Não foi possível abrir o microfone.".to_string())
-}
-
-#[cfg(feature = "whisper")]
-fn transcribe(model_path: &std::path::Path, samples: &[f32]) -> Result<String, String> {
-    use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
-
-    // The model stays loaded between uses (loading it takes a moment); a different model replaces it.
-    static CONTEXT: Mutex<Option<(std::path::PathBuf, WhisperContext)>> = Mutex::new(None);
-    let mut slot = CONTEXT.lock().map_err(|_| "Falha interna na transcrição.".to_string())?;
-    if slot.as_ref().map(|(path, _)| path != model_path).unwrap_or(true) {
-        let path = model_path.to_str().ok_or("Caminho do modelo inválido.")?;
-        let context = WhisperContext::new_with_params(path, WhisperContextParameters::default())
-            .map_err(|_| "Não foi possível carregar o modelo de voz. Baixe-o de novo nas configurações do app.".to_string())?;
-        *slot = Some((model_path.to_path_buf(), context));
-    }
-    let (_, context) = slot.as_ref().ok_or("Modelo indisponível.")?;
-    let mut state = context.create_state().map_err(|_| "Falha ao preparar a transcrição.".to_string())?;
-
-    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    params.set_language(Some("pt"));
-    params.set_translate(false);
-    let threads = thread::available_parallelism().map(|count| count.get()).unwrap_or(4).clamp(1, 8);
-    params.set_n_threads(threads as i32);
-    params.set_no_context(true);
-    params.set_suppress_blank(true);
-    params.set_print_special(false);
-    params.set_print_progress(false);
-    params.set_print_realtime(false);
-    params.set_print_timestamps(false);
-    // Nudges the style (Brazilian Portuguese, amounts as digits) without example sentences:
-    // Whisper copies the content of a prompt that reads like a previous transcript.
-    let prompt = format!("{}.", audio::PROMPT_WORDS.join(", "));
-    params.set_initial_prompt(&prompt);
-
-    state.full(params, samples).map_err(|_| "Não foi possível transcrever o áudio.".to_string())?;
-    let mut text = String::new();
-    for segment in state.as_iter() {
-        if let Ok(part) = segment.to_str_lossy() {
-            text.push_str(&part);
-            text.push(' ');
-        }
-    }
-    Ok(audio::strip_prompt_echo(&audio::clean_transcript(&text)))
-}
-
-#[cfg(not(feature = "whisper"))]
-fn transcribe(_model_path: &std::path::Path, _samples: &[f32]) -> Result<String, String> {
-    Err("Esta versão do app foi gerada sem reconhecimento de voz.".into())
-}
-
-#[cfg(all(test, feature = "whisper"))]
-mod tests {
-    use super::*;
-
-    /// 16-bit PCM WAV → (sample rate, channels, interleaved samples).
-    fn read_wav(bytes: &[u8]) -> (u32, usize, Vec<f32>) {
-        let u16_at = |offset: usize| u16::from_le_bytes([bytes[offset], bytes[offset + 1]]);
-        let u32_at = |offset: usize| u32::from_le_bytes([bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]]);
-        assert_eq!(&bytes[0..4], b"RIFF");
-        let (mut rate, mut channels, mut offset) = (0, 0, 12);
-        while offset + 8 <= bytes.len() {
-            let size = u32_at(offset + 4) as usize;
-            let body = offset + 8;
-            match &bytes[offset..offset + 4] {
-                b"fmt " => {
-                    channels = usize::from(u16_at(body + 2));
-                    rate = u32_at(body + 4);
-                    assert_eq!(u16_at(body + 14), 16, "16-bit PCM only");
-                }
-                b"data" => {
-                    let end = (body + size).min(bytes.len());
-                    let samples = bytes[body..end].chunks_exact(2).map(|pair| f32::from(i16::from_le_bytes([pair[0], pair[1]])) / 32768.0).collect();
-                    return (rate, channels, samples);
-                }
-                _ => {}
-            }
-            offset = body + size + (size % 2);
-        }
-        panic!("no data chunk");
-    }
-
-    /// End-to-end check with a real model (not run by default):
-    /// FINANCE_CHAT_TEST_MODEL=ggml-base.bin FINANCE_CHAT_TEST_WAV=fala.wav [FINANCE_CHAT_TEST_EXPECT=mercado] cargo test -- --ignored
-    #[test]
-    #[ignore]
-    fn transcribes_portuguese_speech_with_a_real_model() {
-        let model = std::env::var("FINANCE_CHAT_TEST_MODEL").expect("FINANCE_CHAT_TEST_MODEL");
-        let wav = std::fs::read(std::env::var("FINANCE_CHAT_TEST_WAV").expect("FINANCE_CHAT_TEST_WAV")).unwrap();
-        let (rate, channels, interleaved) = read_wav(&wav);
-        let samples = audio::trim_silence(&audio::resample(&audio::to_mono(&interleaved, channels), rate, audio::WHISPER_RATE), audio::WHISPER_RATE);
-        assert!(audio::rms(&samples) > SILENCE_RMS);
-        let text = transcribe(std::path::Path::new(&model), &samples).expect("transcription");
-        println!("transcript: {text}");
-        let expected = std::env::var("FINANCE_CHAT_TEST_EXPECT").unwrap_or_else(|_| "mercado".into());
-        assert!(text.to_lowercase().contains(&expected.to_lowercase()), "{text:?} should contain {expected:?}");
-    }
 }
