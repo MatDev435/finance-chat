@@ -34,6 +34,8 @@ export function apiKeyFrom(value) {
   return key;
 }
 
+const transcriptionTotals = (row) => ({ requests: row.requests, audioMs: row.audio_ms, costNanoUsd: row.cost_nano_usd });
+
 const usageTotals = (row) => ({
   requests: row.requests,
   requestsWithoutUsage: row.without_usage ?? 0,
@@ -62,9 +64,9 @@ export function createAiStore(db, secretBox, { now = Date.now, localDate = curre
         key_updated_at = excluded.key_updated_at, updated_at = excluded.updated_at`),
     recordUsage: db.prepare(`
       INSERT OR IGNORE INTO ai_usage (user_id, created_at, local_month, purpose, model, outcome, response_id, usage_known,
-        input_tokens, cached_input_tokens, cache_write_tokens, output_tokens, reasoning_tokens, total_tokens, cost_nano_usd, pricing_version)
+        input_tokens, cached_input_tokens, cache_write_tokens, output_tokens, reasoning_tokens, total_tokens, cost_nano_usd, pricing_version, audio_ms)
       VALUES (@userId, @createdAt, @localMonth, @purpose, @model, @outcome, @responseId, @usageKnown,
-        @inputTokens, @cachedInputTokens, @cacheWriteTokens, @outputTokens, @reasoningTokens, @totalTokens, @costNanoUsd, @pricingVersion)`),
+        @inputTokens, @cachedInputTokens, @cacheWriteTokens, @outputTokens, @reasoningTokens, @totalTokens, @costNanoUsd, @pricingVersion, @audioMs)`),
     setOutcome: db.prepare('UPDATE ai_usage SET outcome = ? WHERE user_id = ? AND response_id = ?'),
     summary: db.prepare(`
       SELECT COUNT(*) AS requests,
@@ -77,6 +79,9 @@ export function createAiStore(db, secretBox, { now = Date.now, localDate = curre
         COALESCE(SUM(total_tokens), 0) AS total_tokens,
         COALESCE(SUM(cost_nano_usd), 0) AS cost_nano_usd
       FROM ai_usage WHERE user_id = ? AND local_month >= ?`),
+    transcriptions: db.prepare(`
+      SELECT COUNT(*) AS requests, COALESCE(SUM(audio_ms), 0) AS audio_ms, COALESCE(SUM(cost_nano_usd), 0) AS cost_nano_usd
+      FROM ai_usage WHERE user_id = ? AND local_month >= ? AND purpose = 'transcription'`),
   };
   const keyContext = (userId) => `user:${userId}:openai_api_key`;
 
@@ -143,7 +148,7 @@ export function createAiStore(db, secretBox, { now = Date.now, localDate = curre
      * when the API returned none). Rows are unique per OpenAI response id, so a
      * response can never be counted twice. Returns whether a row was written.
      */
-    recordUsage(userId, { purpose, model, outcome, responseId = null, usage = null, cost = null }) {
+    recordUsage(userId, { purpose, model, outcome, responseId = null, usage = null, cost = null, audioMs = null }) {
       const time = now();
       const known = Boolean(usage);
       const result = sql.recordUsage.run({
@@ -163,6 +168,7 @@ export function createAiStore(db, secretBox, { now = Date.now, localDate = curre
         totalTokens: known ? usage.totalTokens : null,
         costNanoUsd: known ? (cost?.costNanoUsd ?? null) : null,
         pricingVersion: cost?.pricingVersion ?? null,
+        audioMs,
       });
       return result.changes === 1;
     },
@@ -179,6 +185,11 @@ export function createAiStore(db, secretBox, { now = Date.now, localDate = curre
         month,
         total: usageTotals(sql.summary.get(userId, '0000-00')),
         currentMonth: usageTotals(sql.summary.get(userId, month)),
+        // Voice transcriptions (already included in the totals above), shown on their own line.
+        transcription: {
+          total: transcriptionTotals(sql.transcriptions.get(userId, '0000-00')),
+          currentMonth: transcriptionTotals(sql.transcriptions.get(userId, month)),
+        },
       };
     },
   };

@@ -31,3 +31,10 @@ test('model hints and month labels', () => {
   assert.equal(monthLabel('2026-11'), 'nov/2026');
   assert.equal(monthLabel(''), '');
 });
+
+test('voice transcription usage line', async () => {
+  const { transcriptionText } = await import('../public/js/ai-format.js');
+  assert.equal(transcriptionText({ requests: 0 }), 'nenhuma ainda');
+  assert.equal(transcriptionText({ requests: 3, audioMs: 42_400, costNanoUsd: 3_180_000 }).replace(/ /g, ' '), '3 áudios · 0:42 · US$ 0,00318');
+  assert.match(transcriptionText({ requests: 1, audioMs: 65_000, costNanoUsd: 4_875_000 }), /^1 áudio · 1:05 · /);
+});

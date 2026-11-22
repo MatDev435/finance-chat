@@ -81,6 +81,38 @@ export const MIGRATIONS = [
   ) STRICT;
   CREATE INDEX ai_usage_user_month ON ai_usage(user_id, local_month);
   `,
+  // 3: voice transcription (desktop app) is recorded with the AI usage. SQLite cannot alter a CHECK
+  // constraint, so the table is rebuilt with the new purpose and the audio duration (milliseconds).
+  `
+  CREATE TABLE ai_usage_v3 (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    local_month TEXT NOT NULL,
+    purpose TEXT NOT NULL CHECK (purpose IN ('chat', 'test', 'transcription')),
+    model TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    response_id TEXT UNIQUE,
+    usage_known INTEGER NOT NULL CHECK (usage_known IN (0, 1)),
+    input_tokens INTEGER,
+    cached_input_tokens INTEGER,
+    cache_write_tokens INTEGER,
+    output_tokens INTEGER,
+    reasoning_tokens INTEGER,
+    total_tokens INTEGER,
+    cost_nano_usd INTEGER,
+    pricing_version TEXT,
+    audio_ms INTEGER
+  ) STRICT;
+  INSERT INTO ai_usage_v3 (id, user_id, created_at, local_month, purpose, model, outcome, response_id, usage_known, input_tokens,
+    cached_input_tokens, cache_write_tokens, output_tokens, reasoning_tokens, total_tokens, cost_nano_usd, pricing_version)
+    SELECT id, user_id, created_at, local_month, purpose, model, outcome, response_id, usage_known, input_tokens,
+      cached_input_tokens, cache_write_tokens, output_tokens, reasoning_tokens, total_tokens, cost_nano_usd, pricing_version
+    FROM ai_usage;
+  DROP TABLE ai_usage;
+  ALTER TABLE ai_usage_v3 RENAME TO ai_usage;
+  CREATE INDEX ai_usage_user_month ON ai_usage(user_id, local_month);
+  `,
 ];
 
 export function migrate(db, migrations = MIGRATIONS) {

@@ -40,6 +40,14 @@ export function usageRows(totals) {
   return rows;
 }
 
+/** "3 áudios · 0:42 · US$ 0,0032" (voice transcriptions of the desktop app). */
+export function transcriptionText(totals) {
+  if (!totals?.requests) return 'nenhuma ainda';
+  const seconds = Math.round((totals.audioMs || 0) / 1000);
+  const duration = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  return `${totals.requests} ${totals.requests === 1 ? 'áudio' : 'áudios'} · ${duration} · ${formatUsd(totals.costNanoUsd)}`;
+}
+
 /** "GPT-6 Luna · US$ 0.10 / US$ 0.50 por 1M tokens (entrada / saída)". */
 export function modelHint(model) {
   if (!model) return '';

@@ -69,7 +69,7 @@ Sincroniza e devolve as contas abertas e dentro do orçamento: `{ accounts: [{ i
 
 ### `GET /api/ai`
 
-`{ settings, models: [{ id, name, description, prices: { input, cachedInput, output } }], defaultModel, pricing: { version, source }, usage }`. Preços em US$ por 1M tokens. `usage` traz `month`, `total` e `currentMonth`, cada um com `requests`, `requestsWithoutUsage`, `requestsWithoutCost`, `inputTokens`, `cachedInputTokens`, `outputTokens`, `reasoningTokens`, `totalTokens` e `costNanoUsd` (1e-9 US$). Só do usuário da sessão.
+`{ settings, models: [{ id, name, description, prices: { input, cachedInput, output } }], defaultModel, pricing: { version, source }, usage }`. Preços em US$ por 1M tokens. `usage` traz `month`, `total`, `currentMonth` e `transcription: { total, currentMonth }` (transcrições de voz: `requests`, `audioMs`, `costNanoUsd`, já incluídas nos totais), cada um com `requests`, `requestsWithoutUsage`, `requestsWithoutCost`, `inputTokens`, `cachedInputTokens`, `outputTokens`, `reasoningTokens`, `totalTokens` e `costNanoUsd` (1e-9 US$). Só do usuário da sessão.
 
 ### `PUT /api/ai/settings`
 
@@ -147,6 +147,10 @@ Para um lote (`kind: "batch"` na prévia), conta e categorias de todos os itens 
 ### `GET /api/desktop`
 
 Instaladores disponíveis em `DESKTOP_DIR`: `{ version, installers: [{ name, platform: "windows" | "macos" | "linux", format: "exe" | "msi" | "dmg" | "appimage" | "deb" | "rpm", label, arch, version, size, sha256, url }] }`. Lista vazia quando a pasta não existe.
+
+### `POST /api/voice/transcribe`
+
+Corpo: um WAV PCM de 16 bits (`Content-Type: audio/wav`, até 4 MB e 90 s), gravado pelo app para computador. O servidor envia o áudio à OpenAI (`gpt-transcribe`, idioma `pt`) com a chave da IA do usuário e devolve `200 { text, durationMs, costNanoUsd }`. O áudio não é guardado; o consumo é registrado como transcrição, com o custo estimado pela duração (US$ 0,0045 por minuto). Erros: `409 AI_DISABLED` (IA desativada ou sem chave), `400 INVALID_AUDIO`, `413 PAYLOAD_TOO_LARGE`, `415 UNSUPPORTED_MEDIA_TYPE`, `429 TOO_MANY_ATTEMPTS` (60 a cada 10 minutos) e os erros `AI_*` da OpenAI.
 
 ### `GET /downloads/<nome>`
 

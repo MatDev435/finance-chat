@@ -28,6 +28,33 @@ export const PRICE_TABLES = Object.freeze([
   }),
 ]);
 
+/**
+ * Speech-to-text, priced per minute of audio (the pricing page gives no per-token price for
+ * gpt-transcribe: "Estimated cost $0.0045 / minute"). Unit: nano-dollars per second of audio, so
+ * `milliseconds × price / 1000` is exact. Same versioning rules as above.
+ */
+export const TRANSCRIPTION_PRICE_TABLES = Object.freeze([
+  Object.freeze({
+    version: 'transcription-2026-11-22',
+    effectiveFrom: '2026-11-22',
+    source: 'https://developers.openai.com/api/docs/pricing',
+    models: Object.freeze({
+      // US$ 0.0045 per minute = 4,500,000 nano-dollars per minute = 75,000 per second.
+      'gpt-transcribe': Object.freeze({ nanoUsdPerSecond: 75_000 }),
+    }),
+  }),
+]);
+
+/** Estimated cost of transcribing `audioMs` milliseconds, or null with a reason. */
+export function estimateTranscriptionCost(model, audioMs, { at = Date.now(), tables = TRANSCRIPTION_PRICE_TABLES } = {}) {
+  const table = priceTableAt(at, tables);
+  if (!table) return { costNanoUsd: null, pricingVersion: null, reason: 'no-price-table' };
+  const price = table.models[model];
+  if (!price) return { costNanoUsd: null, pricingVersion: table.version, reason: 'unknown-model' };
+  if (!Number.isSafeInteger(audioMs) || audioMs < 0) return { costNanoUsd: null, pricingVersion: table.version, reason: 'no-duration' };
+  return { costNanoUsd: Math.ceil((audioMs * price.nanoUsdPerSecond) / 1000), pricingVersion: table.version };
+}
+
 /** Service tiers billed at the Standard rates above. Anything else is not estimated. */
 const STANDARD_TIERS = new Set([undefined, null, 'default']);
 
