@@ -1,14 +1,10 @@
-# Desktop app (Tauri 2).
-# - Pull requests touching desktop/: Rust unit tests on Linux.
-# - Manual run or a "desktop-v*" tag: Windows installers (.exe and .msi),
-#   attached to a DRAFT GitHub release (nothing is published automatically).
+# Desktop app (Tauri 2). Runs only when started by hand (Actions → Desktop app → Run workflow):
+# most changes do not touch the desktop app, so nothing runs on pushes, pull requests or merges.
+# It runs the Rust tests, then builds the Windows installers (.exe and .msi) and attaches them
+# to a DRAFT GitHub release (nothing is published automatically).
 name: Desktop app
 
 on:
-  pull_request:
-    paths: ['desktop/**', '.github/workflows/desktop.yml']
-  push:
-    tags: ['desktop-v*']
   workflow_dispatch:
 
 permissions:
@@ -31,7 +27,6 @@ jobs:
 
   installers:
     name: Windows installers
-    if: github.event_name != 'pull_request'
     needs: test
     permissions:
       contents: write

@@ -55,7 +55,7 @@ pub fn trim_silence(samples: &[f32], rate: u32) -> Vec<f32> {
     let frame = ((rate as usize) / 50).max(1);
     let levels: Vec<f32> = samples.chunks(frame).map(rms).collect();
     let peak = levels.iter().copied().fold(0.0_f32, f32::max);
-    let threshold = (peak * 0.1).max(0.004);
+    let threshold = (peak * 0.1).max(0.0005);
     let (Some(first), Some(last)) = (levels.iter().position(|level| *level >= threshold), levels.iter().rposition(|level| *level >= threshold)) else {
         return Vec::new();
     };
@@ -63,6 +63,45 @@ pub fn trim_silence(samples: &[f32], rate: u32) -> Vec<f32> {
     let start = (first * frame).saturating_sub(padding);
     let end = ((last + 1) * frame + padding).min(samples.len());
     samples[start..end].to_vec()
+}
+
+/// Why a recording is not worth sending.
+#[derive(Debug, PartialEq)]
+pub enum NoSpeech {
+    /// (Almost) digital silence: the microphone delivered no sound. On Windows this is what a
+    /// microphone blocked by the privacy settings looks like (no error, just zeros).
+    NoSignal,
+    /// Shorter than [`MIN_SPEECH_SECONDS`].
+    TooShort,
+}
+
+pub const MIN_SPEECH_SECONDS: f32 = 0.3;
+/// Below this peak the recording is digital silence (a quiet but working microphone is far above it).
+const NO_SIGNAL_PEAK: f32 = 0.0008;
+const TARGET_PEAK: f32 = 0.9;
+const MAX_GAIN: f32 = 30.0;
+
+/// 16 kHz mono recording → what is sent for transcription: silence trimmed when that works (the
+/// whole recording otherwise, so a quiet voice is never thrown away) and quiet microphones
+/// amplified up to a healthy level. The transcription service decides whether there is speech.
+pub fn prepare_speech(samples: &[f32]) -> Result<Vec<f32>, NoSpeech> {
+    let min_len = (SPEECH_RATE as f32 * MIN_SPEECH_SECONDS) as usize;
+    if samples.len() < min_len {
+        return Err(NoSpeech::TooShort);
+    }
+    let peak = samples.iter().fold(0.0_f32, |max, sample| max.max(sample.abs()));
+    if peak < NO_SIGNAL_PEAK {
+        return Err(NoSpeech::NoSignal);
+    }
+    let trimmed = trim_silence(samples, SPEECH_RATE);
+    let mut speech = if trimmed.len() >= min_len { trimmed } else { samples.to_vec() };
+    let gain = (TARGET_PEAK / peak).min(MAX_GAIN);
+    if gain > 1.0 {
+        for sample in &mut speech {
+            *sample = (*sample * gain).clamp(-1.0, 1.0);
+        }
+    }
+    Ok(speech)
 }
 
 /// Mono samples at [`SPEECH_RATE`] → a 16-bit PCM WAV file (what the server accepts).
@@ -142,6 +181,31 @@ mod tests {
         assert!(trimmed.len() >= 8_000 && trimmed.len() <= 8_000 + 2 * 3_200 + 640, "{}", trimmed.len());
         assert!(trim_silence(&vec![0.0005_f32; 16_000], rate).is_empty());
         assert!(trim_silence(&[], rate).is_empty());
+    }
+
+    #[test]
+    fn speech_is_prepared_and_quiet_microphones_are_amplified() {
+        let speech = |level: f32| -> Vec<f32> {
+            let mut samples = vec![0.0_f32; 8_000];
+            samples.extend((0..16_000).map(|index| (index as f32 * 0.05).sin() * level));
+            samples.extend(vec![0.0_f32; 8_000]);
+            samples
+        };
+        // A quiet voice (peak 0.01) is kept, trimmed and amplified to a healthy level.
+        let quiet = prepare_speech(&speech(0.01)).unwrap();
+        assert!(quiet.len() < 32_000 && quiet.len() >= 16_000);
+        let peak = quiet.iter().fold(0.0_f32, |max, sample| max.max(sample.abs()));
+        assert!(peak > 0.25, "{peak}");
+        // A loud voice is not amplified.
+        let loud = prepare_speech(&speech(0.95)).unwrap();
+        assert!(loud.iter().all(|sample| sample.abs() <= 0.95 + 1e-6));
+        // Zeros (blocked microphone) and very short recordings are not sent.
+        assert_eq!(prepare_speech(&vec![0.0; 32_000]), Err(NoSpeech::NoSignal));
+        assert_eq!(prepare_speech(&vec![0.0002; 32_000]), Err(NoSpeech::NoSignal));
+        assert_eq!(prepare_speech(&vec![0.5; 1_000]), Err(NoSpeech::TooShort));
+        // Noise-like audio without a clear speech region is still sent whole.
+        let flat: Vec<f32> = (0..16_000).map(|index| if index % 2 == 0 { 0.002 } else { -0.002 }).collect();
+        assert_eq!(prepare_speech(&flat).unwrap().len(), 16_000);
     }
 
     #[test]
