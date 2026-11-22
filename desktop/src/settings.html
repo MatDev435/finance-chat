@@ -31,7 +31,10 @@
       <fieldset id="voice" hidden>
         <legend>Voz (transcrição no computador)</legend>
         <p class="hint">O áudio é transcrito pelo Whisper no próprio computador e nunca é enviado ao servidor. Baixe um modelo uma vez para usar a voz.</p>
-        <div id="models" role="radiogroup" aria-label="Modelo de reconhecimento de voz"></div>
+        <fieldset class="models">
+          <legend>Modelo de reconhecimento de voz</legend>
+          <div id="models"></div>
+        </fieldset>
         <label class="check"><input type="checkbox" id="sounds"> Tocar um som quando a gravação começar e terminar</label>
       </fieldset>
       <p class="hint" id="voice-unavailable" hidden>Esta versão do app foi gerada sem reconhecimento de voz.</p>

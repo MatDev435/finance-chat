@@ -26,7 +26,8 @@ function renderModels(models) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'secondary';
-    button.textContent = model.downloaded ? `Apagar o modelo ${model.label}` : `Baixar o modelo ${model.label}`;
+    button.textContent = model.downloaded ? 'Apagar' : 'Baixar';
+    button.setAttribute('aria-label', model.downloaded ? `Apagar o modelo ${model.label}` : `Baixar o modelo ${model.label}`);
     button.addEventListener('click', () => (model.downloaded ? removeModel(model) : downloadModel(model, button, actions)));
     actions.append(button);
     row.append(radio, label, actions);
