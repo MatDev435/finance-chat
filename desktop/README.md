@@ -64,7 +64,7 @@ Os arquivos ficam em `src-tauri/target/release/bundle/`:
 | macOS | `dmg/Finance Chat_<versão>_aarch64.dmg` (ou `x64`) |
 | Linux | `appimage/finance-chat_<versão>_amd64.AppImage`, `deb/…_amd64.deb`, `rpm/…x86_64.rpm` |
 
-Cada instalador é gerado no próprio sistema (Windows no Windows, e assim por diante). O workflow `.github/workflows/desktop.yml` gera os três em uma versão de rascunho no GitHub, quando acionado manualmente ou por uma tag `desktop-v*`.
+Cada instalador é gerado no próprio sistema (Windows no Windows, e assim por diante). O workflow `.github/workflows/desktop.yml` gera, por enquanto, só os de Windows numa versão de rascunho no GitHub, quando acionado manualmente ou por uma tag `desktop-v*`.
 
 **Assinatura:** sem certificado de assinatura, o Windows (SmartScreen) e o macOS (Gatekeeper) avisam que o app é de um desenvolvedor desconhecido. Para uso próprio, basta confirmar; para distribuir, configure a assinatura (<https://v2.tauri.app/distribute/sign/>).
 
