@@ -1,10 +1,12 @@
 import { api, onSessionExpired } from './js/api.js';
 import { createChatView, formatTime, setPreviewStatus } from './js/chat-view.js';
-import { browserStorage, createHistory } from './js/history.js';
+import { browserStorage, createHistory, historyPrefix } from './js/history.js';
+import { listen } from './js/desktop-bridge.js';
 import { entrySummary, initials, reconcileSelection, resolveInitialAccount, sidebarMotion, viewFor } from './js/navigation.js';
 import { createSettings } from './js/settings.js';
 import { createSetup } from './js/setup.js';
 import { createVoiceInput } from './js/voice.js';
+import { PREVIEW_TEXT, batchData, batchText, previewData, searchBubbleText, summaryBubbleText } from './js/entry-data.js';
 
 const $ = (selector) => document.querySelector(selector);
 const app = $('#app');
@@ -19,7 +21,6 @@ function focusComposer() {
 }
 const storage = browserStorage();
 const GREETING = 'Olá! O que você deseja registrar hoje?';
-const PREVIEW_TEXT = 'Entendi! Encontrei uma movimentação. Confira os detalhes antes de confirmar.';
 
 const state = {
   me: null,
@@ -449,12 +450,42 @@ function renderChat() {
   if (!account) return;
   $('#chat-title').textContent = account.name;
   $('#chat-avatar').textContent = initials(account.name);
-  chatView.render(state.history.load(account.id), {
+  const entries = state.history.load(account.id);
+  renderedSignature = historySignature(entries);
+  chatView.render(entries, {
     greeting: GREETING,
     liveActions: (entry) => liveActionsFor(account.id, entry),
   });
   syncBusyIndicators();
 }
+
+/* ---------- Other windows (desktop quick window, other tabs) ---------- */
+
+let renderedSignature = '';
+const historySignature = (entries) => entries.map((entry) => `${entry.id}:${entry.status ?? ''}`).join('|');
+
+/**
+ * The quick window (or another tab) may have written to the history: the open
+ * chat is redrawn only when its entries actually changed, and the account
+ * list previews are refreshed.
+ */
+function refreshFromHistory() {
+  if (app.dataset.screen !== 'workspace' || !state.history) return;
+  renderAccountList();
+  const account = currentAccount();
+  if (account && isVisible(account.id) && historySignature(state.history.load(account.id)) !== renderedSignature) renderChat();
+}
+window.addEventListener('storage', (event) => {
+  if (state.me && event.key?.startsWith(historyPrefix(state.me.user.id))) refreshFromHistory();
+});
+window.addEventListener('focus', refreshFromHistory);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshFromHistory(); });
+// Desktop app: "Abrir na conversa" from the quick window opens that account's chat here.
+listen('desktop://open-account', (payload) => {
+  const accountId = payload?.accountId;
+  if (accountId && state.accounts.some((account) => account.id === accountId)) selectAccount(accountId);
+  else refreshFromHistory();
+});
 
 function selectAccount(accountId) {
   if (state.selectedId === accountId && !state.settingsOpen) return;
@@ -566,21 +597,6 @@ function handleChatError(accountId, error, text = error.message) {
   if (error.code === 'CONNECTION_REQUIRED' || error.code === 'CONNECTION_UNREADABLE') openSetup({ message: error.message });
 }
 
-/** Display data of one transaction preview (history-safe fields only). */
-function previewData(preview) {
-  return {
-    type: preview.command.type, amount: preview.command.amount, description: preview.command.description,
-    category: preview.category?.name ?? '', account: preview.account.name, date: preview.transaction.date, notes: preview.command.notes,
-    parts: preview.splits?.map((split) => ({ category: split.category.name, amount: split.amount })),
-  };
-}
-
-function batchData(data) {
-  const items = data.items.map((preview) => ({ ...previewData(preview), category: preview.category?.name ?? null }));
-  const total = (type) => items.filter((item) => item.type === type).reduce((sum, item) => sum + Math.round(item.amount * 100), 0) / 100;
-  return { items, expenses: total('expense'), incomes: total('income'), account: data.account?.name ?? '' };
-}
-
 /**
  * Shows one server answer in the chat. Every kind the API can return is
  * handled here: undo, category balance and simulation, single and batch
@@ -615,19 +631,16 @@ function renderResponse(accountId, data) {
   } else if (data.kind === 'batch') {
     const entryId = newEntryId();
     state.live.set(entryId, { type: 'batch', accountId, pendingId: data.pendingId });
-    addEntry(accountId, { ...base, id: entryId, kind: 'batch', text: `Entendi! Encontrei ${data.items.length} movimentações. Confira todas antes de aprovar.`, status: 'pending', data: batchData(data) });
+    addEntry(accountId, { ...base, id: entryId, kind: 'batch', text: batchText(data.items.length), status: 'pending', data: batchData(data) });
     if (data.account) updateAccountName(data.account);
   } else if (data.kind === 'clarify') {
     const entryId = newEntryId();
     state.live.set(entryId, { type: 'clarify', accountId, draftId: data.draftId, missing: data.missing, categories: data.categories });
     addEntry(accountId, { ...base, id: entryId, kind: 'clarify', text: data.message, status: 'pending', data: { items: data.items, missing: data.missing } });
   } else if (data.kind === 'search') {
-    // Month by month: the card lists the months, so the bubble keeps only the total sentence.
-    const text = data.search?.result === 'by_month' ? String(data.message).split('\n')[0].replace(/ Por mês:$/, '') : data.message;
-    addEntry(accountId, { ...base, kind: 'search', text, data: data.search });
+    addEntry(accountId, { ...base, kind: 'search', text: searchBubbleText(data), data: data.search });
   } else if (data.kind === 'summary') {
-    // The card shows every number; the bubble keeps only the heading line of the server's text.
-    addEntry(accountId, { ...base, kind: 'summary', text: String(data.message).split('\n')[0], data: data.summary });
+    addEntry(accountId, { ...base, kind: 'summary', text: summaryBubbleText(data), data: data.summary });
   } else if (data.kind === 'answers') {
     for (const answer of data.answers) renderResponse(accountId, { ...answer, source: data.source });
   } else {

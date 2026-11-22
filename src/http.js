@@ -13,7 +13,7 @@ export class HttpError extends Error {
 }
 
 const SECURITY_HEADERS = {
-  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'no-referrer',
@@ -126,8 +126,11 @@ const STATIC_TYPES = {
   '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
 
+/** Pages served without their extension. */
+const PAGES = { '/': '/index.html', '/quick': '/quick.html' };
+
 export async function serveStatic(request, response, publicDir, pathname) {
-  const requested = pathname === '/' ? '/index.html' : pathname;
+  const requested = PAGES[pathname] ?? pathname;
   const type = STATIC_TYPES[extname(requested)];
   const root = normalize(publicDir + sep);
   const file = normalize(join(publicDir, requested));

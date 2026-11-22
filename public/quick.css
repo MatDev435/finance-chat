@@ -1,0 +1,25 @@
+/* Quick window (desktop app, Alt+Espaço): the composer first, the answer below. Reuses app.css components. */
+html, body.quick-body { height: auto; min-height: 100%; }
+/* The desktop window follows the content height (up to a limit); past it, the page scrolls. */
+body.quick-body { overflow-x: hidden; overflow-y: auto; background: linear-gradient(145deg, #121126, #0a0a17); }
+.quick { display: flex; flex-direction: column; gap: .55rem; padding: .75rem .8rem .8rem; }
+.quick-form { display: flex; flex-direction: column; gap: .45rem; }
+.quick-composer { margin: 0; }
+.quick-composer input:disabled { opacity: .6; }
+.quick-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .35rem 1rem; padding: 0 .3rem; }
+.quick-account { display: inline-flex; align-items: center; gap: .5rem; color: #cfc9e8; font-size: .8rem; font-weight: 600; }
+.quick-account select { min-height: 2.25rem; max-width: 16rem; padding: .3rem .6rem; color: #f7f3ff; background: #15152a; border: 1px solid #2f2a55; border-radius: .6rem; }
+.quick-account select:focus-visible { outline: 3px solid #d4b4ff; outline-offset: 2px; }
+.quick-account select option { background: #151427; }
+.quick-help { margin: 0; color: #a5a0c2; font-size: .76rem; }
+.quick-status { margin: 0; padding: .55rem .8rem; color: #e2ddf5; background: #19182c; border: 1px solid var(--line); border-radius: .7rem; font-size: .84rem; line-height: 1.4; }
+.quick-status.is-error { color: #ffd7e0; background: #3a1425; border-color: #863149; }
+.quick-status.is-recording { color: #fff; background: #4a1530; border-color: #ff91a9; }
+.quick-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.quick-conversation { flex: none; max-height: 26rem; padding: .3rem .2rem .2rem; gap: .9rem; }
+.quick-conversation:empty { display: none; }
+.quick-conversation .message-row { max-width: 100%; }
+.quick-conversation .avatar { width: 2.1rem; height: 2.1rem; }
+.quick-typing { margin: 0 0 0 .4rem; height: auto; }
+.quick[data-state="signed-out"] .quick-form, .quick[data-state="loading"] .quick-help { opacity: .6; }
+@media (forced-colors: active) { .quick-status { border: 1px solid CanvasText; } }
