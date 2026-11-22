@@ -184,3 +184,16 @@ test('"quanto gastei com X [período] [por mês]" becomes a search of the chat a
   // "Quanto tenho em X?" is still the category balance.
   assert.equal(parseMessage('quanto tenho em alimentação').kind, 'category-available');
 });
+
+test('dictated text (voice transcripts) parses like typed text: final period, commas after keywords', () => {
+  assert.deepEqual(parseCommand('Gastei 40 reais no mercado, categoria, alimentação.'), {
+    type: 'expense', amount: 40, description: 'mercado', category: 'Alimentação',
+  });
+  assert.deepEqual(parseCommand('Gastei R$ 40,00 no mercado categoria alimentação, notas, compra do mês.'), {
+    type: 'expense', amount: 40, description: 'mercado', category: 'Alimentação', notes: 'Compra do mês',
+  });
+  assert.equal(parseCommand('Gastei 100 no mercado categorias, 70 alimentação, 30 limpeza.').splits.length, 2);
+  const search = parseMessage('Quanto gastei com transporte, nos últimos três meses, por mês.').search;
+  assert.deepEqual([search.term, search.period, search.periodCount, search.result], ['transporte', 'last_months', 3, 'by_month']);
+  assert.deepEqual(parseMessage('Desfazer.'), { kind: 'undo' });
+});

@@ -102,7 +102,8 @@ const TERM_REJECT = new RegExp(String.raw`\d|\b(?:${MONTH_PATTERN}|hoje|ontem|se
 function parseSpendingQuestion(text) {
   const verb = text.match(SPENDING_VERB);
   if (!verb) return null;
-  let rest = text.replace(/[?.!]+$/, '').trim();
+  // Commas from dictation ("com transporte, nos últimos 3 meses, por mês") do not change the question.
+  let rest = text.replace(/[?.!]+$/, '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
   let byMonth = false;
   let period = null;
   for (let pass = 0; pass < 2; pass += 1) {
@@ -202,7 +203,8 @@ export function checkSplitTotal(splits, total) {
 }
 
 export function parseCommand(input) {
-  let text = normalizeText(input);
+  // Dictated text (voice) usually ends with a period: "... categoria alimentação."
+  let text = normalizeText(input).replace(/[.!…]+$/u, '').trim();
   if (!text) fail('Digite uma mensagem financeira.');
 
   // Optional date before the command: "Ontem gastei...", "Dia 12, comprei...".
@@ -219,8 +221,9 @@ export function parseCommand(input) {
 
   // "categoria X" (single category) or, only when "categoria" is absent, "categorias 70 X, 30 Y" (split).
   const keywordIndex = (pattern) => words.findIndex((word, index) => index > 1 && pattern.test(word));
-  let categoryIndex = keywordIndex(/^categoria$/i);
-  const isSplit = categoryIndex === -1 && (categoryIndex = keywordIndex(/^categorias:?$/i)) !== -1;
+  // Transcribed speech often puts a comma after the keyword: "categoria, alimentação".
+  let categoryIndex = keywordIndex(/^categoria[,:]?$/i);
+  const isSplit = categoryIndex === -1 && (categoryIndex = keywordIndex(/^categorias[,:]?$/i)) !== -1;
   if (categoryIndex === -1) fail('Informe a categoria usando a palavra “categoria”.');
 
   const beforeCategory = words.slice(1, categoryIndex).join(' ');
@@ -235,7 +238,7 @@ export function parseCommand(input) {
   if (!description) fail('Informe uma descrição ou estabelecimento.');
 
   const categoryWords = words.slice(categoryIndex + 1);
-  const noteIndex = categoryWords.findIndex((word, index) => index > 0 && /^notas?:?$/i.test(word));
+  const noteIndex = categoryWords.findIndex((word, index) => index > 0 && /^notas?[,:]?$/i.test(word));
   let categoryText = (noteIndex === -1 ? categoryWords : categoryWords.slice(0, noteIndex)).join(' ').replace(/[\s,]+$/, '').trim();
 
   // Optional date at the end of the category: "categoria alimentação ontem", "categoria alimentação, dia 12".
