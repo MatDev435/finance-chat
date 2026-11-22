@@ -208,6 +208,17 @@ h2[tabindex="-1"]:focus { outline: none; }
 .connection-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, auto)); justify-content: start; gap: .6rem 2.4rem; margin: 0; padding-top: .8rem; border-top: 1px solid var(--line-soft); font-size: .86rem; }
 .connection-grid dt { color: var(--muted); font-size: .8rem; }
 .connection-grid dd { margin: .3rem 0 0; color: #e9e4ff; overflow-wrap: anywhere; }
+/* Desktop app installers. */
+.desktop-card a.primary-button { text-decoration: none; }
+.desktop-card a.primary-button[hidden] { display: none; }
+.installer-list { display: flex; flex-direction: column; gap: .7rem; margin: .75rem 0 0; padding: 0; list-style: none; }
+.installer-item { display: flex; flex-direction: column; gap: .2rem; padding-bottom: .7rem; border-bottom: 1px solid var(--line-soft); }
+.installer-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.installer-link { width: fit-content; color: var(--purple-light); font-size: .88rem; overflow-wrap: anywhere; text-underline-offset: .2rem; }
+.installer-link:focus-visible { outline: 3px solid #d4b4ff; outline-offset: 2px; border-radius: .2rem; }
+.installer-meta { color: #cfc9e8; font-size: .8rem; }
+.installer-hash { color: #8c86a8; font-size: .74rem; overflow-wrap: anywhere; }
+.installer-hash code { color: #bdb7d6; font-size: .72rem; user-select: all; }
 /* AI settings: a native checkbox styled as a switch (keeps keyboard, focus and screen reader semantics). */
 .switch { display: flex; align-items: center; gap: .75rem; min-height: 2.75rem; color: #e2ddf5; font-size: .92rem; cursor: pointer; }
 .switch input { appearance: none; -webkit-appearance: none; position: relative; flex: 0 0 auto; width: 2.9rem; height: 1.65rem; margin: 0; background: #1d1b33; border: 1px solid #3a3560; border-radius: 99px; cursor: pointer; transition: background .15s ease, border-color .15s ease; }

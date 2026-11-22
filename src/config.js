@@ -46,12 +46,14 @@ export function loadConfig(env = process.env) {
   if (problems.length) throw new ConfigError(problems);
 
   const dataDir = resolve(env.DATA_DIR?.trim() || './data');
+  const desktopDir = env.DESKTOP_DIR?.trim() ? resolve(env.DESKTOP_DIR.trim()) : join(dataDir, 'desktop');
   return Object.freeze({
     host: env.HOST?.trim() || '127.0.0.1',
     port,
     dataDir,
     databasePath: join(dataDir, 'finance-chat.sqlite'),
     actualDataDir: join(dataDir, 'actual'),
+    desktopDir,
     appSecret,
     trustProxy: flag(env.TRUST_PROXY),
     cookieSecure,

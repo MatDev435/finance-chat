@@ -60,6 +60,7 @@ Abra `http://localhost:3000` pelo endereço do servidor. Não abra o `public/ind
 | `ALLOW_SIGNUP` | `false` | O primeiro usuário sempre pode se cadastrar. Os demais só com `true`. |
 | `APP_TIME_ZONE` | `America/Sao_Paulo` | Fuso da data das movimentações e do mês das consultas. |
 | `BACKUP_KEEP` | `14` | Quantos backups o `npm run backup` mantém. |
+| `DESKTOP_DIR` | `DATA_DIR/desktop` | Pasta com os instaladores do app para computador oferecidos em **Configurações → App para computador** (veja [desktop/README.md](desktop/README.md)). |
 
 As credenciais do Actual **não** ficam no `.env`. Cada usuário informa as suas na interface.
 
